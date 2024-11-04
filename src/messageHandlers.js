@@ -1,14 +1,12 @@
 const { DMChannel, MessageType, EmbedBuilder, ChannelType, ButtonBuilder, ButtonStyle,ActionRowBuilder  } = require('discord.js');
 const cowsay = require('cowsay');
 const { 
-  GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID 
+  GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID, EXCLUDED_CHANNELS
 } = require('./config');
 const { codeBlock, helloMsgReply, pickFromList, formatDuration } = require('./utils');
 const { 
   ADDRESSES_EMBEDDED_MSG, 
-  createWarningMessageEmbed, 
-  createCommunityStatsEmbed, 
-  createLeaderboardEmbed 
+  createWarningMessageEmbed
 } = require('./embeds');
 
 const suspectedScammers = new Map();
@@ -136,6 +134,11 @@ async function handleMessage(message) {
   try {
     const { author, content, member, channel } = message;
 
+    // Check if channel is in exclude list
+    if (EXCLUDED_CHANNELS.includes(channel.id)) {
+      return;
+    }
+    
     if (message.author.bot) {
       console.log('Do not reply to bots', message.author.tag);
       return;
