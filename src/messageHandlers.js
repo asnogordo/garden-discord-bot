@@ -1,13 +1,17 @@
 const { DMChannel, MessageType, EmbedBuilder, ChannelType, ButtonBuilder, ButtonStyle,ActionRowBuilder  } = require('discord.js');
 const cowsay = require('cowsay');
 const { 
-  GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID, EXCLUDED_CHANNELS
+  GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID, EXCLUDED_CHANNELS,
+  EXCLUDED_CHANNEL_PATTERNS
 } = require('./config');
 const { codeBlock, helloMsgReply, pickFromList, formatDuration } = require('./utils');
 const { 
   ADDRESSES_EMBEDDED_MSG, 
   createWarningMessageEmbed
 } = require('./embeds');
+
+// Compile regex patterns once at startup
+const excludedPatterns = EXCLUDED_CHANNEL_PATTERNS.map(pattern => new RegExp(pattern));
 
 const suspectedScammers = new Map();
 const SCAMMER_TIMEOUT_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds
@@ -134,12 +138,8 @@ async function handleMessage(message) {
   try {
     const { author, content, member, channel } = message;
 
-    // Check if channel or its parent (if it's a thread) is in exclude list
-    const isExcluded = EXCLUDED_CHANNELS.includes(channel.id) || 
-      (channel.isThread() && EXCLUDED_CHANNELS.includes(channel.parentId));
-      
-    // Check if channel is in exclude list
-    if (isExcluded) {
+    // Check if channel should be excluded from message handling
+    if (isChannelExcluded(channel)) {
       return;
     }
     
@@ -527,6 +527,35 @@ async function handleRepeatedMentions(message) {
       console.error('Failed to kick user:', error);
     }
   }
+}
+
+function isChannelExcluded(channel) {
+  // Check by channel ID
+  if (EXCLUDED_CHANNELS.includes(channel.id)) {
+    return true;
+  }
+
+  // Check by channel name patterns
+  if (excludedPatterns.some(pattern => pattern.test(channel.name))) {
+    return true;
+  }
+
+  // If it's a thread, check its parent channel
+  if (channel.isThread()) {
+    const parentChannel = channel.parent;
+    if (parentChannel) {
+      // Check parent channel ID
+      if (EXCLUDED_CHANNELS.includes(parentChannel.id)) {
+        return true;
+      }
+      // Check parent channel name patterns
+      if (excludedPatterns.some(pattern => pattern.test(parentChannel.name))) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 
