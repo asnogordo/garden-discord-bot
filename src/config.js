@@ -17,6 +17,12 @@ module.exports = {
     // Add more channel IDs as needed
   ].filter(Boolean), // This removes any undefined or null values
 
+  // Excluded Channel Name Patterns from ENV
+  EXCLUDED_CHANNEL_PATTERNS: (process.env.EXCLUDED_CHANNEL_PATTERNS || '')
+  .split(',')
+  .map(pattern => pattern.trim())
+  .filter(Boolean),
+  
   // Role IDs
   BASE_ROLE_ID: process.env.BASE_ROLE_ID,
 
