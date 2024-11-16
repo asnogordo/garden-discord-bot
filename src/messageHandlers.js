@@ -564,5 +564,6 @@ module.exports = {
   handleScamMessage,
   addSuspectedScammer,
   quarantineMessage,
-  celebratoryGifs
+  celebratoryGifs,
+  suspiciousUserThreads
 };
