@@ -55,6 +55,24 @@ function formatDuration(ms) {
   }
 }
 
+function isAboveBaseRole(member) {
+  console.log(`Checking permissions for user: ${member.user.tag}`);
+  
+  const baseRole = member.guild.roles.cache.get(require('./config').BASE_ROLE_ID);
+  if (!baseRole) {
+    console.log(`Base role with ID ${require('./config').BASE_ROLE_ID} not found in the guild.`);
+    return false;
+  }
+  
+  console.log(`Base role: ${baseRole.name} (Position: ${baseRole.position})`);
+  console.log(`User's highest role: ${member.roles.highest.name} (Position: ${member.roles.highest.position})`);
+  
+  const isAbove = member.roles.highest.position > baseRole.position;
+  console.log(`Is user's role above base role? ${isAbove}`);
+  
+  return isAbove;
+}
+
 module.exports = {
   formatNumber,
   codeBlock,
@@ -62,5 +80,6 @@ module.exports = {
   pickFromList,
   sleep,
   retryOperation,
-  formatDuration
+  formatDuration,
+  isAboveBaseRole 
 };

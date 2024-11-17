@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder, ChannelType } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ChannelType, InteractionContextType } = require('discord.js');
 const { BASE_ROLE_ID, SCAM_CHANNEL_ID } = require('../config');
 const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const { suspiciousUserThreads } = require('../messageHandlers');
+const { isAboveBaseRole } = require('../utils');
 
 // List of suspicious/watching gifs
 const suspiciousGifs = [
@@ -53,9 +54,27 @@ module.exports = {
             option
                 .setName('reason')
                 .setDescription('Why is this user suspicious?')
-                .setRequired(true)),
-
+                .setRequired(true))
+        .setContexts([InteractionContextType.Guild])  // Only allow in guild/server context
+        .setDefaultMemberPermissions('0'), // No one can use it by default
     async execute(interaction) {
+        if (interaction.channelId !== SCAM_CHANNEL_ID) {
+            await interaction.reply({ 
+                content: 'This command can only be used in the designated channel.',
+                ephemeral: true 
+            });
+            return;
+        }
+
+        // Check if the user has permission to use the command (same check as ban button)
+        if (!isAboveBaseRole(interaction.member)) {
+            await interaction.reply({ 
+                content: "You don't have permission to use this command.",
+                ephemeral: true 
+            });
+            return;
+        }
+
         const targetUser = interaction.options.getUser('user');
         const targetMember = await interaction.guild.members.fetch(targetUser.id);
         const reporter = interaction.user;
