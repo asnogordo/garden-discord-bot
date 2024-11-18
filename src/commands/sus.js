@@ -6,11 +6,14 @@ const { isAboveBaseRole } = require('../utils');
 
 // List of suspicious/watching gifs
 const suspiciousGifs = [
-    'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExNWhvbXg1ZGN0YzZkZ2Z3YzlwMXNmeHh2ZHdsMGJuMjBwb29vZXl5YSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6nXoQ5XjVbJP8BTRrV/giphy.gif',
-    'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExYWZpbDlxdmtlZ3ViZWZ6dnlkYjN1ZmM5ZDV6czBtODdxazcyN2RjdiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/yk8tRCZHCV0qY/giphy.gif',
-    'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExNmJjajNtMDBxNDIydGU5cTFoeXhrZzNhcTFsYzVvOGpnZ3YzemF2byZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/qIbpnP6JF9j8s/giphy.gif',
-    'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExZnV1MTQzd2pub3lyYTZtbTlqOG0xM2F4ODFucTNubWZ2Y25oMmk5cCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/sCBGZzD1DssidYHGOe/giphy.gif',
-    'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExbXEyZ28yZWpuampzYjM3dnNheWw5aDBheHR5em56Mmp3Z3V1OG44MCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zYEg3iFhP7Ily/giphy.gif'
+    'https://media1.tenor.com/m/mH7a6LBNsOQAAAAd/poul3-f-r3veil-p.gif',
+    'https://media.tenor.com/HoJTiDa5_AYAAAAi/this-is-a-little-suspicious-kyle-broflovski.gif',
+    'https://media1.tenor.com/m/hsmlP5zWsE4AAAAd/wyaking.gif',
+    'https://media1.tenor.com/m/hsmlP5zWsE4AAAAd/wyaking.gif',
+    'https://media1.tenor.com/m/tU3q-QmWwv0AAAAd/cool-cats-blue-cat.gif',
+    'https://media1.tenor.com/m/5j6SImhtzsEAAAAd/sus-suspect.gif',
+    'https://media1.tenor.com/m/homCwhdEfAcAAAAd/spider-man-sus.gif',
+    'https://media1.tenor.com/m/nQb_AeIG97cAAAAd/sus-suspicious.gif'
 ];
 
 const pickRandomGif = () => suspiciousGifs[Math.floor(Math.random() * suspiciousGifs.length)];
@@ -171,7 +174,8 @@ module.exports = {
             // If this is a new thread, send a suspicious gif
             if (isNewThread) {
                 await thread.send({
-                    content: `👀 Something seems sus here...\n${pickRandomGif()}`
+                    content: "👀 Something seems sus here...",
+                    files: [pickRandomGif()]
                 });
             }
 
