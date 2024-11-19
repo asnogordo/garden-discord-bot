@@ -35,7 +35,7 @@ module.exports = {
 
   // Bot Behavior Configuration
   POLL_INTERVAL: 120000, // Poll every 120 seconds
-  LARGE_SWAP_AMOUNT: 10000,
+  LARGE_SWAP_AMOUNT: 15000,
   LARGE_STAKE_AMOUNT: 20999,
 
   // Uniswap Pool ABI

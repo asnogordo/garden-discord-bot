@@ -47,8 +47,15 @@ async function checkTransfers(client) {
       console.log(`Transaction ${txHash} has already been processed.`);
       continue;
     }
-    processedTransactions.add(txHash);   
+    processedTransactions.add(txHash);  
 
+    console.log(`Debug - Comparing addresses:
+      transfer.to: ${transfer.to.toLowerCase()}
+      STAKING_CONTRACT_ADDRESS: ${STAKING_CONTRACT_ADDRESS.toLowerCase()}
+      amount: ${amount}
+      LARGE_STAKE_AMOUNT: ${LARGE_STAKE_AMOUNT}
+  `);
+  
     if (transfer.to.toLowerCase() === STAKING_CONTRACT_ADDRESS.toLowerCase() && amount >= LARGE_STAKE_AMOUNT) {
       const embed = new EmbedBuilder()
         .setTitle('🌸 Large SEED 🌱 Stake 🌸')

@@ -6,6 +6,8 @@ const { checkTransfers } = require('./transactionMonitor');
 const config = require('./config');
 const { handleMessage,celebratoryGifs } = require('./messageHandlers');
 const { REST, Routes } = require('discord.js');
+const { isAboveBaseRole } = require('./utils');
+
 
 const client = new Client({
   intents: [
@@ -114,21 +116,3 @@ client.on('interactionCreate', async interaction => {
 client.login(process.env.BOT_TOKEN).catch(err => {
   console.error('Failed to login:', err);
 });
-
-function isAboveBaseRole(member) {
-  console.log(`Checking permissions for user: ${member.user.tag}`);
-  
-  const baseRole = member.guild.roles.cache.get(config.BASE_ROLE_ID);
-  if (!baseRole) {
-    console.log(`Base role with ID ${config.BASE_ROLE_ID} not found in the guild.`);
-    return false;
-  }
-  
-  console.log(`Base role: ${baseRole.name} (Position: ${baseRole.position})`);
-  console.log(`User's highest role: ${member.roles.highest.name} (Position: ${member.roles.highest.position})`);
-  
-  const isAbove = member.roles.highest.position > baseRole.position;
-  console.log(`Is user's role above base role? ${isAbove}`);
-  
-  return isAbove;
-}
