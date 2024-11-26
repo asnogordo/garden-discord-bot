@@ -58,7 +58,7 @@ const wenDefillama = /.*(wh?en) .*(defillama|llama).*/i;
 const wenVote = /.*(wh?en) .*(vote|voting).*/i;
 const wenMoon = /.*(wh?en|where).*mo+n.*/i;
 const wenLambo = /.*(wh?en|where).*lambo.*/i;
-const wenNetwork = /.*wh?en\s+(optimism|op|binance|bnb|gnosis|avax|avalanche|base|sol|solana|monad).*/i;
+const wenNetwork = /.*wh?en\s+(optimism|op|binance|bnb|gnosis|avax|avalanche|sol|solana|monad).*/i;
 const meaningOfLife = /.*meaning of life.*/i;
 const contractAddress = /.*(contract|token) .*address.*/i;
 const totalSupply = /.*(total|max|maximum|token|seed) supply.*/i;
@@ -197,21 +197,21 @@ async function handleMessage(message) {
       await message.reply(pickDude());
     } else if (wenStake.test(message.content)) {
       await message.reply(
-        'SEED Staking is live🌺 at <https://garden.finance/stake/>!\n\nYou can stake in increments of 2,100 SEED for 6 month, 12 month, 24 months, 48 months or permanently.\nYou can also burn 21,000 SEED for an Gardener Pass NFT for maximum voting power.\n\n For more info, and to start staking, visit <https://garden.finance/stake/>.'
+        'SEED Staking is live🌺 at <https://app.garden.finance/stake/>!\n\nYou can stake in increments of 2,100 SEED for 6 month, 12 month, 24 months, 48 months or permanently.\nYou can also burn 21,000 SEED for an Gardener Pass NFT for maximum voting power.\n\n For more info, and to start staking, visit <https://app.garden.finance/stake/>.'
       );
     } else if (wenVote.test(message.content)) {
       await message.reply(
-        'Garden Snapshot can be found at <https://snapshot.org/#/gardenfinance.eth>. SEED stakers will eventually be able to vote on their favorite fillers. For more details, check out <https://garden.finance/blogs/market-making-and-staking/>',
+        'Garden Snapshot can be found at <https://snapshot.org/#/gardenfinance.eth>. SEED stakers will eventually be able to vote on their favorite fillers. For more details, check out <https://garden.finance/blog/market-making-and-staking/>',
       );
     } else if (contractAddress.test(message.content)) {
       await message.channel.send({ embeds: [ADDRESSES_EMBEDDED_MSG] });
     } else if (totalSupply.test(message.content)) {
       await message.reply(
-        "SEED's total supply is 147,000,000.\n\nKeep in mind not everything will be in circulation at launch. For more info, check <https://garden.finance/blogs/wbtc-garden-introducing-seed/>",
+        "SEED's total supply is 147,000,000.\n\nKeep in mind not everything will be in circulation at launch. For more info, check <https://garden.finance/blog/wbtc-garden-introducing-seed/>",
       );
     } else if (howToClaim.test(message.content)) {
       await message.reply(
-        "To claim staked SEED 🌱 rewards or season rewards, visit <https://garden.finance/stake/>\n\n",
+        "To claim staked SEED 🌱 rewards or season rewards, visit <https://app.garden.finance/stake/>\n\n",
       );
     } else if (wenDefillama.test(message.content)) {
       await message.reply(
