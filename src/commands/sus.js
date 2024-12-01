@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, ChannelType, InteractionContextType } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ChannelType, InteractionContextType, PermissionFlagsBits } = require('discord.js');
 const { BASE_ROLE_ID, SCAM_CHANNEL_ID } = require('../config');
 const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const { suspiciousUserThreads } = require('../messageHandlers');
@@ -59,7 +59,7 @@ module.exports = {
                 .setDescription('Why is this user suspicious?')
                 .setRequired(true))
         .setContexts([InteractionContextType.Guild])  // Only allow in guild/server context
-        .setDefaultMemberPermissions('0'), // No one can use it by default
+        .setDefaultMemberPermissions(PermissionFlagsBits.CreatePublicThreads), // No one can use it by default
     async execute(interaction) {
         if (interaction.channelId !== SCAM_CHANNEL_ID) {
             await interaction.reply({ 
