@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package*.json yarn.lock ./
 
 # Install dependencies
-RUN apk add --no-cache --virtual .build-deps alpine-sdk python3 \
+RUN apk add --no-cache --virtual .build-deps alpine-sdk python3 python3-dev py3-setuptools \
     && yarn install --frozen-lockfile \
     && apk del .build-deps
 
