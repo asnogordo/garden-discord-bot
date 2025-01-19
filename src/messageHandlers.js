@@ -164,24 +164,8 @@ async function handleMessage(message) {
     }
     
     await handleScamMessage(message);
-
-    if (noGmAllowed.test(message.content) && message.channel.id !== GM_CHANNEL_ID) {
-      await message.reply(
-        'Please plant🌱 your `gm` and `gn` to the <#' + GM_CHANNEL_ID + '> channel',
-      );
-      if (message.deletable) {
-        await message.delete();
-      }
-    } else if (noHello.test(message.content) && message.channel.id !== GM_CHANNEL_ID) {
-      await message.reply(
-        `${helloMsgReply(
-          message.content,
-        )} nice to see you fellow Gardener! Next time please plant 🌱 your \`hi\` messages in the <#${GM_CHANNEL_ID}> channel`,
-      );
-      if (message.deletable) {
-        await message.delete();
-      }
-    } else if (wenMoon.test(message.content)) {
+    
+    if (wenMoon.test(message.content)) {
       await message.reply(pickMoon());
     } else if (wenLambo.test(message.content)) {
       await message.reply(pickLambo());

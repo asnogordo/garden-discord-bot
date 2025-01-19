@@ -76,40 +76,53 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
 
   if (interaction.customId.startsWith('ban_')) {
-    const userId = interaction.customId.split('_')[1];
-    const guild = interaction.guild;
-    const moderator = interaction.user;
-    if (isAboveBaseRole(interaction.member)) {
-      try {
-        // Ban the user
-        await guild.members.ban(userId, { reason: 'Banned due to suspicious activity' });
-        
-        // Log the action in the thread
-        const logEmbed = new EmbedBuilder()
-          .setColor('#FF0000')
-          .setTitle('User Banned')
-          .setDescription(`User <@${userId}> has been banned.`)
-          .addFields(
-            { name: 'Banned by', value: `${moderator.tag} (${moderator.id})` },
-            { name: 'Ban Time', value: new Date().toUTCString() }
-          );
-        
-        await interaction.reply({ embeds: [logEmbed] });
+      const [_, userId, deleteFlag] = interaction.customId.split('_');
+      const guild = interaction.guild;
+      const moderator = interaction.user;
 
-        // Send a random celebratory GIF
-        const randomGif = celebratoryGifs[Math.floor(Math.random() * celebratoryGifs.length)];
-        await interaction.followUp({ content: `Nice Ban! Mission accomplished! 🎉`, files: [randomGif] });
-        
-        // Optional: Archive the thread
-        await interaction.channel.setArchived(true, 'User has been banned');
-      } catch (error) {
-        console.error('Failed to ban user:', error);
-        await interaction.reply({ content: 'Failed to ban user. Please check logs.', ephemeral: true });
+      if (!isAboveBaseRole(interaction.member)) {
+          await interaction.reply({ 
+              content: "You don't have permission to use this command.", 
+              ephemeral: true 
+          });
+          return;
       }
-    }
-    else {
-      await interaction.reply("You don't have permission to use this command.");
-    }
+
+      try {
+          // Ban the user and delete their messages from the last 7 days
+          await guild.members.ban(userId, { 
+              deleteMessageSeconds: 7 * 24 * 60 * 60,
+              reason: 'Banned due to suspicious activity' 
+          });
+          
+          // Log the action in the thread
+          const logEmbed = new EmbedBuilder()
+              .setColor('#FF0000')
+              .setTitle('User Banned')
+              .setDescription(`User <@${userId}> has been banned and their messages from the last 7 days have been deleted.`)
+              .addFields(
+                  { name: 'Banned by', value: `${moderator.tag} (${moderator.id})` },
+                  { name: 'Ban Time', value: new Date().toUTCString() }
+              );
+          
+          await interaction.reply({ embeds: [logEmbed] });
+
+          // Send a random celebratory GIF
+          const randomGif = celebratoryGifs[Math.floor(Math.random() * celebratoryGifs.length)];
+          await interaction.followUp({ 
+              content: `Nice Ban! Mission accomplished! 🎉`, 
+              files: [randomGif] 
+          });
+          
+          // Archive the thread
+          await interaction.channel.setArchived(true, 'User has been banned');
+      } catch (error) {
+          console.error('Failed to ban user:', error);
+          await interaction.reply({ 
+              content: 'Failed to ban user. Please check logs.', 
+              ephemeral: true 
+          });
+      }
   }
 });
 
