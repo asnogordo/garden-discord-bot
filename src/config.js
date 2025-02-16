@@ -17,6 +17,9 @@ module.exports = {
     // Add more channel IDs as needed
   ].filter(Boolean), // This removes any undefined or null values
 
+  // roles that can't be banned by sus
+  PROTECTED_ROLE_IDS: (process.env.PROTECTED_ROLE_IDS || '').split(',').filter(Boolean),
+
   // Excluded Channel Name Patterns from ENV
   EXCLUDED_CHANNEL_PATTERNS: (process.env.EXCLUDED_CHANNEL_PATTERNS || '')
   .split(',')

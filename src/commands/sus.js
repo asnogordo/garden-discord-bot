@@ -2,7 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder, ChannelType, InteractionContextType, 
 const { BASE_ROLE_ID, SCAM_CHANNEL_ID } = require('../config');
 const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const { suspiciousUserThreads } = require('../messageHandlers');
-const { isAboveBaseRole } = require('../utils');
+const { isAboveBaseRole, hasProtectedRole } = require('../utils');
 
 // List of suspicious/watching gifs
 const suspiciousGifs = [
@@ -82,6 +82,15 @@ module.exports = {
         const targetMember = await interaction.guild.members.fetch(targetUser.id);
         const reporter = interaction.user;
         const reason = interaction.options.getString('reason');
+        
+         // Add this check after fetching the target member
+         if (!canBeModerated(targetMember, interaction.member)) {
+            await interaction.reply({ 
+              content: 'This user cannot be reported due to role hierarchy or protected status.',
+              ephemeral: true 
+            });
+            return;
+          }
 
         // Check if target has only base role
         const hasOnlyBaseRole = targetMember.roles.cache.size === 2 && targetMember.roles.cache.has(BASE_ROLE_ID);

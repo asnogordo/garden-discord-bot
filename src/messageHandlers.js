@@ -21,6 +21,9 @@ const MAX_SPAM_OCCURRENCES = 7; // Maximum number of spam occurrences before tak
 
 const suspiciousUserThreads = new Map();
 
+//message locking to reduce race conditions
+const processingLock = new Set();
+
 // Regex patterns
 const noGmAllowed = /^\s*(gn|gm)\s*$/i;
 const noHello = /^(hi+|hey|hello|h?ola)!?\s*$/i;
@@ -135,7 +138,17 @@ const pickDude = pickFromList(wenDudeGifs);
 const recentMessages = new Map();
 
 async function handleMessage(message) {
+  const messageId = message.id;
+  
+  // Skip if message is already being processed
+  if (processingLock.has(messageId)) {
+    return;
+  }
+
   try {
+
+    processingLock.add(messageId);
+
     const { author, content, member, channel } = message;
 
     // Check if channel should be excluded from message handling
@@ -181,7 +194,7 @@ async function handleMessage(message) {
       await message.reply(pickDude());
     } else if (wenStake.test(message.content)) {
       await message.reply(
-        'SEED Staking is live🌺 at <https://app.garden.finance/stake/>!\n\nYou can stake in increments of 2,100 SEED for 6 month, 12 month, 24 months, 48 months or permanently.\nYou can also burn 21,000 SEED for an Gardener Pass NFT for maximum voting power.\n\n For more info, and to start staking, visit <https://app.garden.finance/stake/>.'
+        'You can stake in increments of 2,100 SEED for 6 month, 12 month, 24 months, 48 months or permanently.\nYou can also burn 21,000 SEED for an Gardener Pass NFT for maximum voting power.\n\n For more info, and to start staking, visit <https://app.garden.finance/stake/>.'
       );
     } else if (wenVote.test(message.content)) {
       await message.reply(
@@ -212,6 +225,9 @@ async function handleMessage(message) {
     }
   } catch (e) {
     console.error('Something failed handling a message', e);
+  } finally {
+    // Always remove from processing lock when done
+    processingLock.delete(messageId);
   }
 }
 
@@ -228,6 +244,11 @@ function isSuspectedScammer(userId) {
 async function handleScamMessage(message) {
   const { author, content, channel, member } = message;
   const key = `${author.id}:${content}`;
+
+  if (hasProtectedRole(member)) {
+    console.log(`Skipping scam check for protected user ${author.tag}`);
+    return;
+  }
 
   // Check if all mentioned users have only the base role
   const mentionedUsersHaveOnlyBaseRole = message.mentions.users.size > 0 
