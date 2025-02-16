@@ -51,27 +51,36 @@ const scamPatterns = [
   /JUICE AIR-DROP/i,
   /live NOW/i,
   /juice-foundation.org/i,
-  /Get your free tokens/i
+  /Get your free tokens/i,
+  // Job scam patterns
+  /(?:[А-Яа-яЁё]|\u0430|\u043E|\u0435|\u0440|\u0441|\u0443|\u0445|\u0432|\u043C){3,}/i,
+  /\b(?:looking|hiring|seeking|need)\s+(?:for\s+)?(?:employees|staff|team members|workers)\b/i,
+  /(?:\$\d+(?:[-+]?\d+)?\/(?:hour|hr|week|month|day)|(?:\d+[-+]?\d+)?\s*(?:USD|EUR)\/(?:hour|hr|week|month|day))/i,
+  /(?:no|without)\s+(?:exp(?:erience)?|quals?|qualifications?)\s+(?:req(?:uired)?|needed)/i,
+  /(?:reach|contact|message|dm)\s+(?:me|us|admin)\s+(?:via|through|by|using)\s+(?:dm|pm|telegram|discord|email)/i,
+  /send\s+(?:me|us)?\s+(?:a\s+)?friend\s+req(?:uest)?/i,
+  /\b(?:dev(?:eloper)?s?|testers?|analysts?|writers?|moderators?|designers?)\s+(?:\$\d+[-+]?\d*[kK]?\+?\s*\/\s*(?:week|month|year)|needed)/i,
+  /platform\s+(?:looking|hiring|searching|seeking)\s+for/i,
+  /\b(?:AI|ML|DeFi|Crypto|NFT|Web3)\s+(?:platform|project|company)\s+(?:hiring|recruiting|looking)/i
 ];
 
 const urlPattern = /https?:\/\/[^\s]+/i;
 const internalUrl = /(?<!https?:\/\/)(?:www\.)?(discord\.(?:com|gg)|discord(?:app)?\.com)(\S*)/i;
-const howToClaim = /.*(how) (.*)(claim|airdrop).*/i;
-const wenDefillama = /.*(wh?en) .*(defillama|llama).*/i;
+const howToStakeOrClaim = /.*(?:how|where).*(?:(?:stake|staking|earn|claim|get).*(?:btc|bitcoin|rewards?|seed)|(?:btc|bitcoin|rewards?).*(?:stake|staking|earn|claim|get)).*/i;const wenDefillama = /.*(wh?en) .*(defillama|llama).*/i;
 const wenVote = /.*(wh?en) .*(vote|voting).*/i;
 const wenMoon = /.*(wh?en|where).*mo+n.*/i;
 const wenLambo = /.*(wh?en|where).*lambo.*/i;
-const wenNetwork = /.*wh?en\s+(optimism|op|binance|bnb|gnosis|avax|avalanche|sol|solana|monad).*/i;
+const wenNetwork = /.*wh?en\s+(optimism|op|binance|bnb|gnosis|avax|avalanche|sol|solana|monad|hyperliquid|hl).*/i;
 const meaningOfLife = /.*meaning of life.*/i;
 const contractAddress = /.*(contract|token) .*address.*/i;
 const totalSupply = /.*(total|max|maximum|token|seed) supply.*/i;
 const wenDuneAnalytics = /.*(wh?en|where).*(dune|analytics).*/i;
 const wenDude = /.*(wh?en|where).*(dude).*/i;
 const wenStake = /.*(wh?en) .*(stake|staking).*/i;
-const stakingIssues = /\b(stake|staking)\b.*\b(reward|received|error|issue|problem)\b(?!.*\b(how|what|when)\b)/i;
-const swapIssues = /\b(swap|swapping|exchange|convert|converting)\b.*\b(no prompt|can't connect|trouble|error|issue|problem)\b(?!.*\b(how|what|when)\b)/i;
-const claimingIssues = /\b(claim|claiming)\b.*\b(not work|error|issue|problem)\b(?!.*\b(when|what)\b)/i;
-const transactionIssues = /\b(transaction|refund|sent|transfer|overpaid)\b.*\b(issue|problem|error|stuck)\b(?!.*\b(how to|what is)\b)/i;
+const stakingIssues = /\b(stake|staking)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:rewards?\s+(?:not?|missing)|error|issue|problem|stuck|fail(?:ed|ing)?|unable)\b/i;
+const swapIssues = /\b(?:swap(?:ping)?|exchange|convert(?:ing)?)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:no[t]?\s+(?:prompt|working)|can't\s+connect|trouble|error|issue|problem|fail(?:ed|ing)?|stuck)\b/i;
+const claimingIssues = /\b(?:claim(?:ing)?)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:not?\s+work(?:ing)?|error|issue|problem|fail(?:ed|ing)?|stuck)\b/i;
+const transactionIssues = /\b(?:transaction|refund|sent|transfer|overpaid)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone|to|is)\b).*\b(?:issue|problem|error|stuck|fail(?:ed|ing)?|missing|lost)\b/i;
 
 // GIF lists
 const wenMoonGifs = [
@@ -206,9 +215,9 @@ async function handleMessage(message) {
       await message.reply(
         "SEED's total supply is 147,000,000.\n\nKeep in mind not everything will be in circulation at launch. For more info, check <https://garden.finance/blog/wbtc-garden-introducing-seed/>",
       );
-    } else if (howToClaim.test(message.content)) {
+    } else if (howToStakeOrClaim.test(message.content)) {
       await message.reply(
-        "To claim staked SEED 🌱 rewards or season rewards, visit <https://app.garden.finance/stake/>\n\n",
+        "Stake SEED 🌱 to earn fees in BTC or to claim BTC rewards, visit <https://app.garden.finance/stake/>\n\n",
       );
     } else if (wenDefillama.test(message.content)) {
       await message.reply(
