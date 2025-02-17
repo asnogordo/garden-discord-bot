@@ -26,8 +26,15 @@ async function checkTransfers(client) {
     return;        
   }
   const transfers = await getTokenTransfers(highestCheckedBlock, currentBlock);
+
+  if (!Array.isArray(transfers)) {
+    console.error('Invalid transfers data received from API:', transfers);
+    return;
+  }
+
   highestCheckedBlock = currentBlock;
 
+  // Safely check for large transfers
   const hasLargeTransfer = transfers.some(transfer => 
     Number(transfer.value) >= LARGE_STAKE_AMOUNT
   );

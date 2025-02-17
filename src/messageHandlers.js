@@ -61,7 +61,8 @@ const scamPatterns = [
   /send\s+(?:me|us)?\s+(?:a\s+)?friend\s+req(?:uest)?/i,
   /\b(?:dev(?:eloper)?s?|testers?|analysts?|writers?|moderators?|designers?)\s+(?:\$\d+[-+]?\d*[kK]?\+?\s*\/\s*(?:week|month|year)|needed)/i,
   /platform\s+(?:looking|hiring|searching|seeking)\s+for/i,
-  /\b(?:AI|ML|DeFi|Crypto|NFT|Web3)\s+(?:platform|project|company)\s+(?:hiring|recruiting|looking)/i
+  /\b(?:AI|ML|DeFi|Crypto|NFT|Web3)\s+(?:platform|project|company)\s+(?:hiring|recruiting|looking)/i,
+  /\b(?:dm|support|support ticket)\b(?!.*#raise-a-ticket)/i
 ];
 
 const urlPattern = /https?:\/\/[^\s]+/i;
