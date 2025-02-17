@@ -4,7 +4,7 @@ const {
   GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID, EXCLUDED_CHANNELS,
   EXCLUDED_CHANNEL_PATTERNS
 } = require('./config');
-const { codeBlock, helloMsgReply, pickFromList, formatDuration } = require('./utils');
+const { codeBlock, helloMsgReply, pickFromList, formatDuration,canBeModerated } = require('./utils');
 const { 
   ADDRESSES_EMBEDDED_MSG, 
   createWarningMessageEmbed
@@ -254,8 +254,8 @@ async function handleScamMessage(message) {
   const { author, content, channel, member } = message;
   const key = `${author.id}:${content}`;
 
-  if (hasProtectedRole(member)) {
-    console.log(`Skipping scam check for protected user ${author.tag}`);
+  if (!canBeModerated(member, message.guild.me)) {
+    console.log(`Skipping scam check for protected/higher role user ${author.tag}`);
     return;
   }
 

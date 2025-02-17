@@ -2,7 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder, ChannelType, InteractionContextType, 
 const { BASE_ROLE_ID, SCAM_CHANNEL_ID } = require('../config');
 const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const { suspiciousUserThreads } = require('../messageHandlers');
-const { isAboveBaseRole, hasProtectedRole } = require('../utils');
+const { isAboveBaseRole, canBeModerated } = require('../utils');
 
 // List of suspicious/watching gifs
 const suspiciousGifs = [
