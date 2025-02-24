@@ -26,11 +26,22 @@ async function checkTransfers(client) {
     return;        
   }
   const transfers = await getTokenTransfers(highestCheckedBlock, currentBlock);
+
+  if (!Array.isArray(transfers)) {
+    console.error('Invalid transfers data received from API:', transfers);
+    return;
+  }
+
   highestCheckedBlock = currentBlock;
 
+  // Safely check for large transfers
   const hasLargeTransfer = transfers.some(transfer => 
     Number(transfer.value) >= LARGE_STAKE_AMOUNT
   );
+
+  // Use Set to track processed transactions in this batch
+  const processedInBatch = new Set();
+
 
   let tokenPrice = null;
   if (hasLargeTransfer) {
@@ -41,13 +52,16 @@ async function checkTransfers(client) {
     const amount = parseFloat(transfer.value) / 1e18;
     const usdValue = tokenPrice !== null ? amount * tokenPrice : 0;
     const txHash = transfer.hash;
+    
     const displayText = `${txHash.substring(0, 6)}...${txHash.substring(txHash.length - 4)}`;
 
-    if (processedTransactions.has(txHash)) {
+    // Skip if already processed either globally or in this batch
+    if (processedTransactions.has(txHash) || processedInBatch.has(txHash)) {
       console.log(`Transaction ${txHash} has already been processed.`);
       continue;
     }
-    processedTransactions.add(txHash);  
+    processedTransactions.add(txHash);
+    processedInBatch.add(txHash);
 
     console.log(`Debug - Comparing addresses:
       transfer.to: ${transfer.to.toLowerCase()}

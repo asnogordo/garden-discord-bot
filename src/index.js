@@ -76,24 +76,34 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
 
   if (interaction.customId.startsWith('ban_')) {
-      const [_, userId, deleteFlag] = interaction.customId.split('_');
-      const guild = interaction.guild;
-      const moderator = interaction.user;
+    const [_, userId, deleteFlag] = interaction.customId.split('_');
+    const guild = interaction.guild;
+    const moderator = interaction.member;
 
-      if (!isAboveBaseRole(interaction.member)) {
+    try {
+        const targetMember = await guild.members.fetch(userId);
+        
+        if (!isAboveBaseRole(moderator)) {
           await interaction.reply({ 
-              content: "You don't have permission to use this command.", 
-              ephemeral: true 
+            content: "You don't have permission to use this command.", 
+            ephemeral: true 
           });
           return;
-      }
+        }
 
-      try {
-          // Ban the user and delete their messages from the last 7 days
-          await guild.members.ban(userId, { 
-              deleteMessageSeconds: 7 * 24 * 60 * 60,
-              reason: 'Banned due to suspicious activity' 
+        if (!canBeModerated(targetMember, moderator)) {
+          await interaction.reply({ 
+            content: "This user cannot be banned due to role hierarchy or protected status.", 
+            ephemeral: true 
           });
+          return;
+        }
+
+        // Proceed with ban...
+        await guild.members.ban(userId, { 
+          deleteMessageSeconds: 7 * 24 * 60 * 60,
+          reason: 'Banned due to suspicious activity' 
+        });
           
           // Log the action in the thread
           const logEmbed = new EmbedBuilder()
@@ -116,11 +126,11 @@ client.on('interactionCreate', async interaction => {
           
           // Archive the thread
           await interaction.channel.setArchived(true, 'User has been banned');
-      } catch (error) {
+        } catch (error) {
           console.error('Failed to ban user:', error);
           await interaction.reply({ 
-              content: 'Failed to ban user. Please check logs.', 
-              ephemeral: true 
+            content: 'Failed to ban user. Please check logs.', 
+            ephemeral: true 
           });
       }
   }

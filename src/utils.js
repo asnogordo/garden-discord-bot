@@ -1,3 +1,9 @@
+// utils.js
+const config = require('./config');
+
+// Cache the protected roles
+let protectedRoleIds = null;
+
 function formatNumber(num) {
   return new Intl.NumberFormat().format(num);
 }
@@ -73,6 +79,65 @@ function isAboveBaseRole(member) {
   return isAbove;
 }
 
+function getProtectedRoleIds() {
+  if (!protectedRoleIds) {
+    protectedRoleIds = new Set(config.PROTECTED_ROLE_IDS || []);
+  }
+  return protectedRoleIds;
+}
+
+function hasProtectedRole(member) {
+  if (!member) {
+    console.error('Member object is required for hasProtectedRole check');
+    return false;
+  }
+
+  try {
+    const protectedRoles = getProtectedRoleIds();
+    
+    // No protected roles configured - fail safe by returning true
+    if (protectedRoles.size === 0) {
+      console.warn('No protected roles configured - defaulting to protected state');
+      return true;
+    }
+
+    return member.roles.cache.some(role => protectedRoles.has(role.id));
+  } catch (error) {
+    console.error('Error checking protected roles:', error);
+    // Fail safe - if we can't verify, assume protected
+    return true;
+  }
+}
+
+function canBeModerated(member, moderator) {
+  if (!member || !moderator) {
+    console.error('Both member and moderator objects are required for moderation check');
+    return false;
+  }
+
+  try {
+    // Protected roles check
+    if (hasProtectedRole(member)) {
+      return false;
+    }
+
+    // Self-moderation check
+    if (member.id === moderator.id) {
+      return false;
+    }
+
+    // Role hierarchy check
+    if (member.roles.highest.position >= moderator.roles.highest.position) {
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error in canBeModerated check:', error);
+    return false;
+  }
+}
+
 module.exports = {
   formatNumber,
   codeBlock,
@@ -81,5 +146,7 @@ module.exports = {
   sleep,
   retryOperation,
   formatDuration,
-  isAboveBaseRole 
+  isAboveBaseRole,
+  hasProtectedRole,
+  canBeModerated
 };
