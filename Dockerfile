@@ -1,20 +1,21 @@
-FROM node:alpine
+FROM node:20
 
 WORKDIR /app
 
-# Copy package.json and yarn.lock
+# Copy package files first (better layer caching)
 COPY package*.json yarn.lock ./
 
 # Install dependencies
-RUN apk add --no-cache --virtual .build-deps alpine-sdk python3 python3-dev py3-setuptools \
-    && yarn install --frozen-lockfile \
-    && apk del .build-deps
+RUN yarn install --frozen-lockfile
 
-# Copy the rest of the application
+# Copy application code
 COPY . .
 
-# Set permissions (if needed)
-RUN chmod -R 755 .
+# Create a volume for persistent data
+VOLUME /app/data
 
-# Start the application
+# Set environment variable to specify database location
+ENV SQLITE_DB_PATH=/app/data/garden.db
+
+# Command to run the application
 CMD ["yarn", "start"]

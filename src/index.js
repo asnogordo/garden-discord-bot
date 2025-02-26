@@ -7,6 +7,7 @@ const config = require('./config');
 const { handleMessage,celebratoryGifs } = require('./messageHandlers');
 const { REST, Routes } = require('discord.js');
 const { isAboveBaseRole } = require('./utils');
+fs.writeFileSync('bot.pid', process.pid.toString());
 
 
 const client = new Client({
@@ -50,9 +51,11 @@ const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
   }
 })();
 
+let monitorIntervalId = null;
+
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}!`);
-  setInterval(() => checkTransfers(client), config.POLL_INTERVAL);
+  monitorIntervalId = setInterval(() => checkTransfers(client), config.POLL_INTERVAL);
 });
 
 client.on('messageCreate', handleMessage);
@@ -135,6 +138,33 @@ client.on('interactionCreate', async interaction => {
       }
   }
 });
+
+// Add this before client.login
+// Graceful shutdown handler
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+function gracefulShutdown() {
+  console.log('Received shutdown signal, closing connections...');
+  
+  // Clear the monitoring interval
+  if (monitorIntervalId) {
+    clearInterval(monitorIntervalId);
+  }
+  
+  // Destroy the Discord client connection
+  client.destroy();
+  
+  // Remove PID file
+  try {
+    fs.unlinkSync('bot.pid');
+  } catch (err) {
+    console.error('Error removing PID file:', err);
+  }
+  
+  console.log('Shutdown complete');
+  process.exit(0);
+}
 
 client.login(process.env.BOT_TOKEN).catch(err => {
   console.error('Failed to login:', err);

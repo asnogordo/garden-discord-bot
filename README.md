@@ -27,9 +27,11 @@ Out of the scope of this README, but in summary [something like this](https://ww
 
 ### With Node
 
-`npm start`
+`yarn start`
 
 ### With Docker
+
+...
 
 ```bash
 docker build . -t garden-bot

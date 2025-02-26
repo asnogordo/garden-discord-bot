@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  garden-bot:
+    env_file:
+      - .env.prod
+    environment:
+      - NODE_ENV=production
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M

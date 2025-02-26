@@ -23,10 +23,11 @@ async function getRecentUserMessages(channel, userId, limit = 3) {
     const messages = await channel.messages.fetch({ limit: 100 });
     
     // Filter for the user's messages and sort by timestamp
-    const userMessages = messages
+    const userMessages = Array.from(messages
         .filter(msg => msg.author.id === userId)
         .sort((a, b) => b.createdTimestamp - a.createdTimestamp)
-        .first(limit);
+        .values())
+        .slice(0, limit);
 
     return userMessages;
 }
@@ -58,7 +59,8 @@ module.exports = {
                 .setName('reason')
                 .setDescription('Why is this user suspicious?')
                 .setRequired(true))
-        .setContexts([InteractionContextType.Guild])  // Only allow in guild/server context
+        .setDMPermission(false)  // This makes it guild-only
+        // Remove the deprecated .setContexts line completely
         .setDefaultMemberPermissions(PermissionFlagsBits.CreatePublicThreads), // No one can use it by default
     async execute(interaction) {
         if (interaction.channelId !== SCAM_CHANNEL_ID) {
