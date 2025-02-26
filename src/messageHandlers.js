@@ -255,7 +255,10 @@ async function handleScamMessage(message) {
   const { author, content, channel, member } = message;
   const key = `${author.id}:${content}`;
 
-  if (!canBeModerated(member, message.guild.me)) {
+  // Get the bot's member object properly
+  const botMember = message.guild.members.cache.get(message.client.user.id);
+
+  if (!canBeModerated(member, botMember)) {
     console.log(`Skipping scam check for protected/higher role user ${author.tag}`);
     return;
   }

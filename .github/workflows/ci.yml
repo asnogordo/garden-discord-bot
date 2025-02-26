@@ -22,10 +22,10 @@ jobs:
         node-version: '20'
 
     - name: Install dependencies
-      run: npm install
+      run: yarn install
 
     - name: Run tests
-      run: npm test
+      run: yarn test
 
   deploy-dev:
     needs: build
@@ -48,8 +48,11 @@ jobs:
         ssh ${{ secrets.USERNAME }}@${{ secrets.DEV_HOST }} << EOF
           cd /home/ubuntu/garden-discord-bot
           git pull origin development
-          /home/ubuntu/bin/garden_docker_kill.sh
-          /home/ubuntu/bin/garden_docker_start.sh
+          docker-compose -f docker-compose.yml -f docker-compose.dev.yml down
+          docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+          # Wait a moment and check logs for successful startup
+          sleep 10
+          docker logs garden-bot 2>&1 | grep -q "Logged in as" && echo "Bot successfully started" || echo "Warning: Bot might not have started properly"
         EOF
 
   deploy-prod:
@@ -73,6 +76,9 @@ jobs:
         ssh ${{ secrets.USERNAME }}@${{ secrets.PROD_HOST }} << EOF
           cd /home/ubuntu/garden-discord-bot
           git pull origin main
-          /home/ubuntu/bin/garden_docker_kill.sh
-          /home/ubuntu/bin/garden_docker_start.sh
+          docker-compose -f docker-compose.yml -f docker-compose.prod.yml down
+          docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+          # Wait a moment and check logs for successful startup
+          sleep 10
+          docker logs garden-bot 2>&1 | grep -q "Logged in as" && echo "Bot successfully started" || echo "Warning: Bot might not have started properly"
         EOF
