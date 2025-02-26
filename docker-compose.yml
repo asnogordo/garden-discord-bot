@@ -8,6 +8,7 @@ services:
     image: garden-bot:${TAG:-latest}
     container_name: garden-bot
     restart: unless-stopped
+    network_mode: "host"
     volumes:
       - ./data:/app/data
     logging:
