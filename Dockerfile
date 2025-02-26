@@ -4,9 +4,7 @@ FROM node:20-slim
 WORKDIR /app
 
 # Install system dependencies with retry logic and DNS fallbacks
-RUN echo "nameserver 8.8.8.8" > /etc/resolv.conf && \
-    echo "nameserver 1.1.1.1" >> /etc/resolv.conf && \
-    (apt-get update || (sleep 5 && apt-get update) || (sleep 10 && apt-get update)) && \
+RUN (apt-get update || (sleep 5 && apt-get update) || (sleep 10 && apt-get update)) && \
     apt-get install -y --no-install-recommends \
       python3 \
       make \
