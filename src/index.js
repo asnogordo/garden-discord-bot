@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, EmbedBuilder, MessageFlags } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const { checkTransfers } = require('./transactionMonitor');
@@ -131,11 +131,19 @@ client.on('interactionCreate', async interaction => {
           await interaction.channel.setArchived(true, 'User has been banned');
         } catch (error) {
           console.error('Failed to ban user:', error);
-          await interaction.reply({ 
-            content: 'Failed to ban user. Please check logs.', 
-            ephemeral: true 
-          });
-      }
+          
+          if (error.code === 10007) {
+            await interaction.reply({ 
+              content: 'Cannot ban this user: they may have already left the server or been banned.', 
+              flags: MessageFlags.Ephemeral
+            });
+          } else {
+            await interaction.reply({ 
+              content: `Failed to ban user: ${error.message}. Please check logs for more details.`, 
+              flags: MessageFlags.Ephemeral
+            });
+          }
+        }
   }
 });
 
