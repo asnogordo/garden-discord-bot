@@ -14,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Set up Node.js
-      uses: actions/setup-node@v2
+      uses: actions/setup-node@v3
       with:
         node-version: '20'
 
@@ -32,11 +32,8 @@ jobs:
     if: github.ref == 'refs/heads/development'
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-
     - name: Setup SSH
-      uses: webfactory/ssh-agent@v0.5.0
+      uses: webfactory/ssh-agent@v0.8.0
       with:
         ssh-private-key: ${{ secrets.SSH_KEY }}
 
@@ -46,13 +43,20 @@ jobs:
     - name: Deploy to Dev
       run: |
         ssh ${{ secrets.USERNAME }}@${{ secrets.DEV_HOST }} << EOF
-          cd /home/ubuntu/garden-discord-bot
+          # Pull latest code in the dev directory
+          cd ~/garden-discord-bot-dev
+          git checkout development
           git pull origin development
-          docker-compose -f docker-compose.yml -f docker-compose.dev.yml down
-          docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
-          # Wait a moment and check logs for successful startup
+          
+          # Using docker compose plugin syntax (no hyphen)
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml down
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml build
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+          
+          # Check logs for successful startup
           sleep 10
-          docker logs garden-bot 2>&1 | grep -q "Logged in as" && echo "Bot successfully started" || echo "Warning: Bot might not have started properly"
+          docker compose logs --tail=20
+          docker logs garden-bot-dev 2>&1 | grep -q "Logged in as" && echo "Bot successfully started" || echo "Warning: Bot might not have started properly"
         EOF
 
   deploy-prod:
@@ -60,11 +64,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-
     - name: Setup SSH
-      uses: webfactory/ssh-agent@v0.5.0
+      uses: webfactory/ssh-agent@v0.8.0
       with:
         ssh-private-key: ${{ secrets.SSH_KEY }}
 
@@ -74,11 +75,18 @@ jobs:
     - name: Deploy to Prod
       run: |
         ssh ${{ secrets.USERNAME }}@${{ secrets.PROD_HOST }} << EOF
-          cd /home/ubuntu/garden-discord-bot
+          # Pull latest code in the prod directory
+          cd ~/garden-discord-bot-prod
+          git checkout main
           git pull origin main
-          docker-compose -f docker-compose.yml -f docker-compose.prod.yml down
-          docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-          # Wait a moment and check logs for successful startup
+          
+          # Using docker compose plugin syntax (no hyphen)
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml build
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+          
+          # Check logs for successful startup
           sleep 10
-          docker logs garden-bot 2>&1 | grep -q "Logged in as" && echo "Bot successfully started" || echo "Warning: Bot might not have started properly"
+          docker compose logs --tail=20
+          docker logs garden-bot-prod 2>&1 | grep -q "Logged in as" && echo "Bot successfully started" || echo "Warning: Bot might not have started properly"
         EOF
