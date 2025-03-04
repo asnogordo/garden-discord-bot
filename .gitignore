@@ -5,3 +5,4 @@ garden.db
 .env.dev
 .env.prod
 .env.prd
+bot.pid
