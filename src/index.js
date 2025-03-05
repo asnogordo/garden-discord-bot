@@ -112,9 +112,9 @@ client.on('interactionCreate', async interaction => {
           const logEmbed = new EmbedBuilder()
               .setColor('#FF0000')
               .setTitle('User Banned')
-              .setDescription(`User <@${userId}> has been banned and their messages from the last 7 days have been deleted.`)
+              .setDescription(`User <@${targetMember.user.tag}(${userId})> has been banned and their messages from the last 7 days have been deleted.`)
               .addFields(
-                  { name: 'Banned by', value: `${moderator.tag} (${moderator.id})` },
+                  { name: 'Banned by', value: `${moderator.user.tag} (${moderator.id})` },
                   { name: 'Ban Time', value: new Date().toUTCString() }
               );
           
