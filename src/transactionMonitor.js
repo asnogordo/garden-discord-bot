@@ -149,51 +149,46 @@ async function getLatestBlockNumber() {
   return parseInt(response.data.result, 16);
 }
 
-async function getTokenTransfers(startBlock, endBlock) {
-  const maxRetries = 5;
-  let retries = 0;
+async function getTokenTransfers(fromBlock, toBlock, maxRetries = 5) {
+  let attempt = 0;
   
-  while (retries < maxRetries) {
+  while (attempt < maxRetries) {
+    attempt++;
+    
     try {
-      console.log(`Attempting to fetch transfers (attempt ${retries + 1}/${maxRetries})`);
+      console.log(`Attempting to fetch transfers (attempt ${attempt}/${maxRetries})`);
+      
       const response = await axios.get(
-        `https://api.arbiscan.io/api?module=account&action=tokentx&contractaddress=${TOKEN_ADDRESS}&startblock=${startBlock}&endblock=${endBlock}&sort=asc&apikey=${ARBISCAN_API_KEY}`,
+        `https://api.arbiscan.io/api?module=account&action=tokentx&contractaddress=${TOKEN_ADDRESS}&startblock=${fromBlock}&endblock=${toBlock}&sort=asc&apikey=${ARBISCAN_API_KEY}`,
         { 
           timeout: 15000 // 15 second timeout
         }
       );
       
-      // Check if the response contains an error message
-      if (response.data.status === '0') {
-        throw new Error(`API Error: ${response.data.message}`);
-      }
-      
-      // If the result is null or undefined, return an empty array instead
-      return Array.isArray(response.data.result) ? response.data.result : [];
+      // Return the result from a successful API call
+      return response.data.result || [];
       
     } catch (error) {
-      retries++;
-      const isTimeoutError = error.code === 'ECONNABORTED' || 
-                            (error.response && error.response.status === 524);
-      
-      console.error(`API request failed (${isTimeoutError ? 'timeout' : error.message})`);
-      
-      if (retries === maxRetries) {
-        console.error(`Maximum retries (${maxRetries}) reached. Giving up.`);
-        return []; // Return empty array instead of throwing
+      // Check if the error is "No transactions found"
+      if (error.response?.data?.message === "No transactions found" || 
+          error.message?.includes("No transactions found")) {
+        console.log(`No transactions found in blocks ${fromBlock} to ${toBlock}`);
+        return []; // Return empty array as a valid response
       }
       
-      // Exponential backoff with jitter
-      const baseDelay = Math.pow(2, retries) * 1000;
-      const jitter = Math.random() * 1000;
-      const delay = baseDelay + jitter;
+      // For other errors, retry with backoff
+      console.error(`API request failed (${error.message})`);
       
-      console.log(`Retrying in ${Math.round(delay/1000)} seconds. Attempt ${retries}/${maxRetries}`);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      if (attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`Retrying in ${delay / 1000} seconds. Attempt ${attempt}/${maxRetries}`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        console.error(`Maximum retry attempts reached. Unable to fetch transfers.`);
+        throw error; // Re-throw after all retries fail
+      }
     }
   }
-  
-  return []; // Fallback return if we somehow exit the loop
 }
 
 async function getTransactionReceipt(txHash) {

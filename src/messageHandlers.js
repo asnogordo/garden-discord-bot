@@ -62,12 +62,19 @@ const scamPatterns = [
   /\b(?:dev(?:eloper)?s?|testers?|analysts?|writers?|moderators?|designers?)\s+(?:\$\d+[-+]?\d*[kK]?\+?\s*\/\s*(?:week|month|year)|needed)/i,
   /platform\s+(?:looking|hiring|searching|seeking)\s+for/i,
   /\b(?:AI|ML|DeFi|Crypto|NFT|Web3)\s+(?:platform|project|company)\s+(?:hiring|recruiting|looking)/i,
-  /\b(?:dm|support|support ticket)\b(?!.*#raise-a-ticket)/i
+  /\b(?:dm|support|support ticket)\b(?!.*#raise-a-ticket)/i,
+  /create a ticket .* https:\/\/discord\.com\/invite\//i,
+  /create a ticket .* https:\/\/discord\.gg\//i,
+  /\b(?:reach out to|contact) .* (?:live support|support desk)\b/i,
+  /\b(?:support_ticket|support ticket|ticket).+(?:discord\.gg|discord\.com\/invite)/i,
+  /\b(?:for all|for prompt|for any|for) (?:faq|questions|assistance|help|support).+(?:discord\.gg|discord\.com\/invite)/i,
+  /(?:discord\.gg|discord\.com\/invite).+(?:\[#[^\]]+\]|\(>\s*https)/i
 ];
 
 const urlPattern = /https?:\/\/[^\s]+/i;
 const internalUrl = /(?<!https?:\/\/)(?:www\.)?(discord\.(?:com|gg)|discord(?:app)?\.com)(\S*)/i;
-const howToStakeOrClaim = /.*(?:how|where).*(?:(?:stake|staking|earn|claim|get).*(?:btc|bitcoin|rewards?|seed)|(?:btc|bitcoin|rewards?).*(?:stake|staking|earn|claim|get)).*/i;const wenDefillama = /.*(wh?en) .*(defillama|llama).*/i;
+const howToStakeOrClaim = /.*(?:how|where).*(?:(?:stake|staking|earn|claim).*(?:btc|bitcoin|rewards?|seed)|(?:btc|bitcoin|rewards?).*(?:stake|staking|earn|claim)|(?:get|receive).*(?:staking|staked).*(btc|bitcoin|rewards?)).*/i;
+const howToGetSeed = /(?:how|where).*(?:get|buy|purchase|acquire|swap for).*seed\??/i;
 const wenVote = /.*(wh?en) .*(vote|voting).*/i;
 const wenMoon = /.*(wh?en|where).*mo+n.*/i;
 const wenLambo = /.*(wh?en|where).*lambo.*/i;
@@ -216,6 +223,13 @@ async function handleMessage(message) {
       await message.reply(
         "SEED's total supply is 147,000,000.\n\nKeep in mind not everything will be in circulation at launch. For more info, check <https://garden.finance/blog/wbtc-garden-introducing-seed/>",
       );
+    } else if (howToGetSeed.test(message.content)) {
+      await message.reply(
+        "You can swap for SEED on Cowswap 🐮\n\n" +
+        "**Ethereum:**\n" +
+        "<https://swap.cow.fi/#/1/swap/WETH/0x5eed99d066a8CaF10f3E4327c1b3D8b673485eED>\n\n" +
+        "View the ERC20 contract address for SEED on Etherscan: <https://etherscan.io/token/0x5eed99d066a8CaF10f3E4327c1b3D8b673485eED>"
+      );
     } else if (howToStakeOrClaim.test(message.content)) {
       await message.reply(
         "Stake SEED 🌱 to earn fees in BTC or to claim BTC rewards, visit <https://app.garden.finance/stake/>\n\n",
@@ -241,9 +255,15 @@ async function handleMessage(message) {
   }
 }
 
+// Check for common patterns in support/ticket scams
 function isTargetedScamMessage(message, hasOnlyBaseRole, hasMentions, hasExternalUrl) {
-  const hasDmRequest = /\b(?:dm|message)\s+me\b/i.test(message.content);
-  return hasOnlyBaseRole && hasMentions && (hasExternalUrl || hasDmRequest);
+  const hasSupportOrTicketTerms = /\b(?:support|ticket|assistance|help desk|live support|faq|questions)\b/i.test(message.content);
+  const hasDmRequest = /\b(?:dm|message|reach out|contact)\s+(?:me|us|support|team)\b/i.test(message.content);
+  const hasDiscordInvite = /(?:discord\.gg|discord\.com\/invite)/i.test(message.content);
+  
+  return (hasOnlyBaseRole && 
+         (hasMentions && (hasExternalUrl || hasDmRequest)) ||
+         (hasSupportOrTicketTerms && hasDiscordInvite));
 }
 
 function isSuspectedScammer(userId) {
@@ -277,6 +297,7 @@ async function handleScamMessage(message) {
   const hasMentions = (message.mentions.users.size > 0 && mentionedUsersHaveOnlyBaseRole) || message.mentions.everyone;
   const hasAnyMentions = (message.mentions.users.size > 0) || message.mentions.everyone;
   const hasExternalUrl = urlPattern.test(message.content) || internalUrl.test(message.content);
+  const hasDeceptiveUrlContent = hasDeceptiveUrl(message.content); // Add this line
   const userRoles = message.member.roles.cache;
   // Check if the user has only the base role
   const hasOnlyBaseRole = userRoles.size === 2 && userRoles.has(BASE_ROLE_ID);
@@ -302,7 +323,7 @@ async function handleScamMessage(message) {
 
   const isTargetedScam = isTargetedScamMessage(message, hasOnlyBaseRole, hasMentions, hasExternalUrl);
 
-  if (((isScamContent || (hasExternalUrl && hasMentions)) && hasOnlyBaseRole) || isTargetedScam || isScamUser) {
+  if (((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent) && hasOnlyBaseRole) || isTargetedScam || isScamUser) {
     await quarantineMessage(message, new Set([channel.id]));
   }
 
@@ -574,6 +595,23 @@ function isChannelExcluded(channel) {
   }
 
   return false;
+}
+
+// Enhanced URL detection function
+function hasDeceptiveUrl(content) {
+  // Check for URLs disguised with zero-width spaces or other invisible characters
+  const hasHiddenChars = /https?:\/\/\S*[\u200B-\u200D\uFEFF\u2060\u180E]\S*/i.test(content);
+  
+  // Check for lookalike domains (Discord variants)
+  const hasLookalikeDomain = /https?:\/\/(?:dlscord|d1scord|discorcl|discorb|discord\.(?!com|gg)|discordd)\.\w+/i.test(content);
+  
+  // Check for URL shorteners which might hide malicious destinations
+  const hasUrlShortener = /https?:\/\/(?:bit\.ly|tinyurl\.com|goo\.gl|t\.co|is\.gd|buff\.ly|ow\.ly|tr\.im|adf\.ly)/i.test(content);
+  
+  // Check for irregular Discord invite formats
+  const hasIrregularDiscordInvite = /discord(?:\.gg|\.com\/invite)\/[a-zA-Z0-9]{8,10}/i.test(content);
+  
+  return hasHiddenChars || hasLookalikeDomain || hasUrlShortener || hasIrregularDiscordInvite;
 }
 
 

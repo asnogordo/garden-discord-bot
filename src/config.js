@@ -37,7 +37,7 @@ module.exports = {
   UNISWAP_POOL_ADDRESS: '0xf9f588394ec5c3b05511368ce016de5fd3812446',
 
   // Bot Behavior Configuration
-  POLL_INTERVAL: 120000, // Poll every 120 seconds
+  POLL_INTERVAL: 360000, // Poll every 360 seconds
   LARGE_SWAP_AMOUNT: 15000,
   LARGE_STAKE_AMOUNT: 20999,
 
