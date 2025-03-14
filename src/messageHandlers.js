@@ -83,12 +83,16 @@ const meaningOfLife = /.*meaning of life.*/i;
 const contractAddress = /.*(contract|token) .*address.*/i;
 const totalSupply = /.*(total|max|maximum|token|seed) supply.*/i;
 const wenDuneAnalytics = /.*(wh?en|where).*(dune|analytics).*/i;
+const wenDefillama = /.*(?:defi.?llama|defillama|tvl).*/i;
 const wenDude = /.*(wh?en|where).*(dude).*/i;
 const wenStake = /.*(wh?en) .*(stake|staking).*/i;
 const stakingIssues = /\b(stake|staking)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:rewards?\s+(?:not?|missing)|error|issue|problem|stuck|fail(?:ed|ing)?|unable)\b/i;
 const swapIssues = /\b(?:swap(?:ping)?|exchange|convert(?:ing)?)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:no[t]?\s+(?:prompt|working)|can't\s+connect|trouble|error|issue|problem|fail(?:ed|ing)?|stuck)\b/i;
 const claimingIssues = /\b(?:claim(?:ing)?)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:not?\s+work(?:ing)?|error|issue|problem|fail(?:ed|ing)?|stuck)\b/i;
-const transactionIssues = /\b(?:transaction|refund|sent|transfer|overpaid)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone|to|is)\b).*\b(?:issue|problem|error|stuck|fail(?:ed|ing)?|missing|lost)\b/i;
+const transactionIssues = /\b(?:transaction|refund|sent|transfer|overpaid|payment)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone|to|is)\b).*\b(?:issue|problem|error|stuck|fail(?:ed|ing)?|missing|lost|pending)\b/i;
+const orderIssues = /\b(?:order)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:stuck|pending|fail(?:ed|ing)?|issue|problem|long time)\b/i;
+const gardenExplorer = /(?:\b(?:wh?en|where|how|can|does|do I|is|what|show|find|see|check|get|open|access|view|use|link to)(?:\s+\w+){0,5}\s+(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer|txs?|transaction\s*status|tx\s*status|transactions?))|(?:\b(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer)(?:\s+\w+){0,2}\s+(?:link|url|site|page|website))|(?:\bexplorer\b)|(?:\btx\s*link\b)/i;
+const metricsAnalytics = /(?:how|where|what|which|can|is there).*(?:check|see|find|view|get|analytics|metrics|stats|statistics|volume|data|chart|graph|dashboard|numbers|tvl|defi.?llama|dune)/i;
 
 // GIF lists
 const wenMoonGifs = [
@@ -236,7 +240,18 @@ async function handleMessage(message) {
       );
     } else if (wenDefillama.test(message.content)) {
       await message.reply(
-        "We are 🌸live🌸 on defillama, check it out!\n<https://defillama.com/protocol/garden>",
+        "Garden's 🌸 Defillama page can be found here:\n<https://defillama.com/protocol/garden>",
+      );
+    } else if (gardenExplorer.test(message.content)) {
+      await message.reply(
+        "You can check your transaction status at Garden's explorer page 🌸: <https://explorer.garden.finance/>"
+      );
+    } else if (metricsAnalytics.test(message.content)) {
+      await message.reply(
+        "You can check Garden Finance metrics on:\n\n" +
+        "📊 **DefiLlama**: <https://defillama.com/protocol/garden>\n" +
+        "📈 **Dune Analytics**: <https://dune.com/garden_finance/gardenfinance>\n" +
+        "🔍 **Garden Explorer**: <https://explorer.garden.finance/>"
       );
     } else if (stakingIssues.test(message.content)) {
       await message.reply(`If you are having issues with staking, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
@@ -244,7 +259,7 @@ async function handleMessage(message) {
       await message.reply(`If you're experiencing issues with an in progress swap, please open a support ticket in <#${SUPPORT_CHANNEL_ID}> and include your order ID.`);
     } else if (claimingIssues.test(message.content)) {
       await message.reply(`If you are having issues claiming $SEED, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
-    } else if (transactionIssues.test(message.content)) {
+    } else if (orderIssues.test(message.content) || transactionIssues.test(message.content)) {
       await message.reply(`If you have questions about a transaction or need help with a refund, please provide your order ID and open a support ticket in <#${SUPPORT_CHANNEL_ID}>`);
     }
   } catch (e) {
