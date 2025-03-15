@@ -68,7 +68,19 @@ const scamPatterns = [
   /\b(?:reach out to|contact) .* (?:live support|support desk)\b/i,
   /\b(?:support_ticket|support ticket|ticket).+(?:discord\.gg|discord\.com\/invite)/i,
   /\b(?:for all|for prompt|for any|for) (?:faq|questions|assistance|help|support).+(?:discord\.gg|discord\.com\/invite)/i,
-  /(?:discord\.gg|discord\.com\/invite).+(?:\[#[^\]]+\]|\(>\s*https)/i
+  /(?:discord\.gg|discord\.com\/invite).+(?:\[#[^\]]+\]|\(>\s*https)/i,
+  /create-?t!?cket.*https/i,
+  /check my ticket.*(?:https|discord\.com\/invite)/i,
+  /submit query.*https/i,
+  /request(?:_| )(?:support|assistance).*(?:https|discord\.com\/invite)/i,
+  /unclaimed airdrop.*https/i,
+  /paper handed.*(?:claim|airdrop).*https/i,
+  /fomo-diamondhands/i,
+  /(?:support|ticket|assistance).*discord\.com\/invite/i,
+  /discord\.com\/invite\/.*(?:submit|query|support|ticket)/i,
+  /create.*ticket.*(?:https|discord\.gg)/i,
+  /(?:👆|👇|👉).*https/i,
+  /https.*(?:👆|👇|👉)/i
 ];
 
 const urlPattern = /https?:\/\/[^\s]+/i;
@@ -292,9 +304,32 @@ async function handleScamMessage(message) {
 
   // Get the bot's member object properly
   const botMember = message.guild.members.cache.get(message.client.user.id);
+    
+  // Do scam pattern checks before the moderation check
+  const isScamContent = scamPatterns.some(pattern => pattern.test(message.content));
+  const hasExternalUrl = urlPattern.test(message.content) || internalUrl.test(message.content);
+  const hasDeceptiveUrlContent = hasDeceptiveUrl(message.content); 
 
   if (!canBeModerated(member, botMember)) {
-    console.log(`Skipping scam check for protected/higher role user ${author.tag}`);
+    let scamDetected = false;
+    let scamReasons = [];
+    
+    if (isScamContent) {
+      scamDetected = true;
+      scamReasons.push("matched scam pattern");
+    }
+    
+    if (hasExternalUrl) {
+      scamDetected = true;
+      scamReasons.push("contains external URL");
+    }
+    
+    if (hasDeceptiveUrlContent) {
+      scamDetected = true;
+      scamReasons.push("contains deceptive URL");
+    }
+    
+    console.log(`Skipping scam check for protected/higher role user ${author.tag}${scamDetected ? ` [WOULD TRIGGER: ${scamReasons.join(", ")}]` : ""}`);
     return;
   }
 
@@ -308,11 +343,9 @@ async function handleScamMessage(message) {
       ).then(results => results.every(Boolean))
     : false;
   const isScamUser = userDisplayName.some(pattern => pattern.test(member.displayName));
-  const isScamContent = scamPatterns.some(pattern => pattern.test(message.content));
   const hasMentions = (message.mentions.users.size > 0 && mentionedUsersHaveOnlyBaseRole) || message.mentions.everyone;
   const hasAnyMentions = (message.mentions.users.size > 0) || message.mentions.everyone;
-  const hasExternalUrl = urlPattern.test(message.content) || internalUrl.test(message.content);
-  const hasDeceptiveUrlContent = hasDeceptiveUrl(message.content); // Add this line
+
   const userRoles = message.member.roles.cache;
   // Check if the user has only the base role
   const hasOnlyBaseRole = userRoles.size === 2 && userRoles.has(BASE_ROLE_ID);
@@ -617,16 +650,26 @@ function hasDeceptiveUrl(content) {
   // Check for URLs disguised with zero-width spaces or other invisible characters
   const hasHiddenChars = /https?:\/\/\S*[\u200B-\u200D\uFEFF\u2060\u180E]\S*/i.test(content);
   
-  // Check for lookalike domains (Discord variants)
-  const hasLookalikeDomain = /https?:\/\/(?:dlscord|d1scord|discorcl|discorb|discord\.(?!com|gg)|discordd)\.\w+/i.test(content);
+  // Check for lookalike domains (Discord variants and crypto-related)
+  const hasLookalikeDomain = /https?:\/\/(?:dlscord|d1scord|discorcl|discorb|discord\.(?!com|gg)|discordd|diamondhand|gem-|airdr[o0]p-|nft-claim|crypto-|swap-|fomo-|claim-|web3-|dao-|seed-)\.\w+/i.test(content);
   
   // Check for URL shorteners which might hide malicious destinations
-  const hasUrlShortener = /https?:\/\/(?:bit\.ly|tinyurl\.com|goo\.gl|t\.co|is\.gd|buff\.ly|ow\.ly|tr\.im|adf\.ly)/i.test(content);
+  const hasUrlShortener = /https?:\/\/(?:bit\.ly|tinyurl\.com|goo\.gl|t\.co|is\.gd|buff\.ly|ow\.ly|tr\.im|adf\.ly|dub\.sh|cutt\.ly|soo\.gd|clck\.ru|qr\.ae|bc\.vc)/i.test(content);
   
   // Check for irregular Discord invite formats
-  const hasIrregularDiscordInvite = /discord(?:\.gg|\.com\/invite)\/[a-zA-Z0-9]{8,10}/i.test(content);
+  const hasIrregularDiscordInvite = /discord(?:\.gg|\.com\/invite)\/[a-zA-Z0-9]{8,}/i.test(content);
   
-  return hasHiddenChars || hasLookalikeDomain || hasUrlShortener || hasIrregularDiscordInvite;
+  // Check for suspicious domains related to airdrops, claims, etc.
+  const hasSuspiciousDomain = /https?:\/\/(?:[a-z0-9-]+\.)*(?:claim|airdrop|fomo|diamond|hands|nft|crypto|web3|seed|free|reward)(?:[a-z0-9-]*)\.[a-z]+/i.test(content);
+  
+  // Check for domains with hyphens (common in scam sites)
+  const hasHyphenatedDomain = /https?:\/\/[a-z0-9]+-[a-z0-9]+-[a-z0-9]+\.[a-z]+/i.test(content);
+  
+  // Check for ticket or support related links
+  const hasTicketRelatedUrl = /(?:ticket|support|help|query|assistance).*https?:\/\//i.test(content) || /https?:\/\/.*(?:ticket|support|help|query|assistance)/i.test(content);
+  
+  return hasHiddenChars || hasLookalikeDomain || hasUrlShortener || hasIrregularDiscordInvite || 
+         hasSuspiciousDomain || hasHyphenatedDomain || hasTicketRelatedUrl;
 }
 
 
