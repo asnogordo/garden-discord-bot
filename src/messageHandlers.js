@@ -19,6 +19,12 @@ const MAX_MENTIONS = 4; // Maximum number of mentions allowed before action is t
 const MENTION_COOLDOWN = 10 * 60 * 1000; // 10 minutes cooldown for mention count
 const MAX_SPAM_OCCURRENCES = 7; // Maximum number of spam occurrences before taking action
 
+// Add these constants at the top with your other constants
+const ALLOWED_DOMAINS = [
+  'garden.finance',
+  'x.com'
+];
+
 const suspiciousUserThreads = new Map();
 
 //message locking to reduce race conditions
@@ -83,7 +89,8 @@ const scamPatterns = [
   /https.*(?:👆|👇|👉)/i
 ];
 
-const urlPattern = /https?:\/\/[^\s]+/i;
+const urlPattern = /https?:\/\/([^\/\s]+)([^\s]*)/i;
+const plainDomainPattern = /(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|app|dev|info|co|gg))\b/gi;
 const internalUrl = /(?<!https?:\/\/)(?:www\.)?(discord\.(?:com|gg)|discord(?:app)?\.com)(\S*)/i;
 const howToStakeOrClaim = /.*(?:how|where).*(?:(?:stake|staking|earn|claim).*(?:btc|bitcoin|rewards?|seed)|(?:btc|bitcoin|rewards?).*(?:stake|staking|earn|claim)|(?:get|receive).*(?:staking|staked).*(btc|bitcoin|rewards?)).*/i;
 const howToGetSeed = /(?:how|where).*(?:get|buy|purchase|acquire|swap for).*seed\??/i;
@@ -182,7 +189,7 @@ async function handleMessage(message) {
 
     processingLock.add(messageId);
 
-    const { author, content, member, channel } = message;
+    const { author, content, member, channel, guild } = message;
 
     // Check if channel should be excluded from message handling
     if (isChannelExcluded(channel)) {
@@ -210,6 +217,11 @@ async function handleMessage(message) {
     }
     
     await handleScamMessage(message);
+
+    if (!message.deleted && hasUnauthorizedUrl(content, guild)) {
+      await handleUnauthorizedUrl(message);
+      return; // Exit early after handling the unauthorized URL
+    }
     
     if (wenMoon.test(message.content)) {
       await message.reply(pickMoon());
@@ -258,13 +270,6 @@ async function handleMessage(message) {
       await message.reply(
         "You can check your transaction status at Garden's explorer page 🌸: <https://explorer.garden.finance/>"
       );
-    } else if (metricsAnalytics.test(message.content)) {
-      await message.reply(
-        "You can check Garden Finance metrics on:\n\n" +
-        "📊 **DefiLlama**: <https://defillama.com/protocol/garden>\n" +
-        "📈 **Dune Analytics**: <https://dune.com/garden_finance/gardenfinance>\n" +
-        "🔍 **Garden Explorer**: <https://explorer.garden.finance/>"
-      );
     } else if (stakingIssues.test(message.content)) {
       await message.reply(`If you are having issues with staking, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
     } else if (swapIssues.test(message.content)) {
@@ -273,7 +278,15 @@ async function handleMessage(message) {
       await message.reply(`If you are having issues claiming $SEED, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
     } else if (orderIssues.test(message.content) || transactionIssues.test(message.content)) {
       await message.reply(`If you have questions about a transaction or need help with a refund, please provide your order ID and open a support ticket in <#${SUPPORT_CHANNEL_ID}>`);
-    }
+    } else if (metricsAnalytics.test(message.content)) {
+      await message.reply(
+        "You can check Garden Finance metrics on:\n\n" +
+        "🔍 **Garden Explorer**: <https://explorer.garden.finance/>\n" +
+        "📈 **Dune Analytics**: <https://dune.com/garden_finance/gardenfinance>\n" +
+        "📊 **DefiLlama**: <https://defillama.com/protocol/garden>"
+
+      );
+    } 
   } catch (e) {
     console.error('Something failed handling a message', e);
   } finally {
@@ -307,7 +320,7 @@ async function handleScamMessage(message) {
     
   // Do scam pattern checks before the moderation check
   const isScamContent = scamPatterns.some(pattern => pattern.test(message.content));
-  const hasExternalUrl = urlPattern.test(message.content) || internalUrl.test(message.content);
+  const isExternalUrl = !isAllowedUrl(content, guild);
   const hasDeceptiveUrlContent = hasDeceptiveUrl(message.content); 
 
   if (!canBeModerated(member, botMember)) {
@@ -319,7 +332,7 @@ async function handleScamMessage(message) {
       scamReasons.push("matched scam pattern");
     }
     
-    if (hasExternalUrl) {
+    if (isExternalUrl) {
       scamDetected = true;
       scamReasons.push("contains external URL");
     }
@@ -671,6 +684,161 @@ function hasDeceptiveUrl(content) {
   return hasHiddenChars || hasLookalikeDomain || hasUrlShortener || hasIrregularDiscordInvite || 
          hasSuspiciousDomain || hasHyphenatedDomain || hasTicketRelatedUrl;
 }
+
+//Function to detect unauthorized URLs
+function hasUnauthorizedUrl(content, guild) {
+  // Regular expression to match URLs
+  const urlRegex = /https?:\/\/([^\/\s]+)(\/[^\s]*)?/gi;
+  const plainUrlRegex = /(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|app|dev|info|co|gg))\b/gi;
+  
+  // First check for standard URLs (with http/https)
+  let match;
+  while ((match = urlRegex.exec(content)) !== null) {
+    const domain = match[1].toLowerCase();
+    const path = match[2] || '';
+    
+    // Check if the domain is in the allowed list
+    const isAllowed = ALLOWED_DOMAINS.some(allowedDomain => 
+      domain === allowedDomain || domain.endsWith('.' + allowedDomain)
+    );
+    
+    if (isAllowed) {
+      continue; // Domain is explicitly allowed
+    }
+    
+    // Special handling for Discord URLs
+    if (domain === 'discord.com' || domain === 'discord.gg' || domain.endsWith('.discord.com')) {
+      // Check if it's a link to internal channels/messages in the current guild
+      if (path.includes('/channels/')) {
+        // Extract guild ID from the path
+        const pathParts = path.split('/');
+        const channelsIndex = pathParts.indexOf('channels');
+        
+        if (channelsIndex !== -1 && pathParts.length > channelsIndex + 1) {
+          const linkedGuildId = pathParts[channelsIndex + 1];
+          
+          // If it links to the current guild, allow it
+          if (linkedGuildId === guild.id) {
+            continue;
+          }
+        }
+      }
+      
+      // If it's a Discord invite link to external servers, it's unauthorized
+      if (domain === 'discord.gg' || path.includes('/invite/')) {
+        return true;
+      }
+      
+      // Allow other Discord links (like to Discord support, etc.)
+      continue;
+    }
+    
+    // If we get here, the URL is not from an allowed domain or internal Discord link
+    console.log(`Unauthorized URL detected: ${domain}`);
+    return true;
+  }
+  
+  // Also check for URLs without the protocol (e.g., ghost.com instead of https://ghost.com)
+  while ((match = plainUrlRegex.exec(content)) !== null) {
+    const plainDomain = match[1].toLowerCase();
+    
+    // Check if the domain is in the allowed list
+    const isAllowed = ALLOWED_DOMAINS.some(allowedDomain => 
+      plainDomain === allowedDomain || plainDomain.endsWith('.' + allowedDomain)
+    );
+    
+    if (!isAllowed && plainDomain !== 'discord.com' && plainDomain !== 'discord.gg') {
+      console.log(`Unauthorized plain domain detected: ${plainDomain}`);
+      return true;
+    }
+  }
+  
+  return false; // No unauthorized URLs found
+}
+
+// Function to handle unauthorized URLs
+async function handleUnauthorizedUrl(message) {
+  try {
+    // Delete the message
+    await message.delete();
+    
+    // Send a warning message to the user
+    await message.channel.send({
+      content: `🌱 <@${message.author.id}>, your message has been removed because it contained an unauthorized URL. 🌿\n\n🌻 For security reasons, only links from garden.finance, x.com, and this Discord server are allowed. 🌷\n\n🍃 If you need to share other links, please contact a moderator. 🌸`,
+      allowedMentions: { users: [message.author.id] }
+    });
+    
+    // Log the unauthorized URL attempt
+    console.log(`Unauthorized URL from ${message.author.tag} (${message.author.id}): ${message.content}`);
+    
+    return true; // Indicates the message was handled
+  } catch (error) {
+    console.error('Failed to handle unauthorized URL:', error);
+    return false;
+  }
+}
+
+// Function to check if a URL is to an internal Discord channel or an allowed domain
+function isAllowedUrl(content, guild) {
+  // Check for URLs with http/https protocol
+  const urlMatches = [...content.matchAll(urlPattern)];
+  for (const match of urlMatches) {
+    const fullUrl = match[0];
+    const domain = match[1].toLowerCase();
+    const path = match[2] || '';
+    
+    // Check allowed domains first
+    const isAllowedDomain = ALLOWED_DOMAINS.some(allowedDomain => 
+      domain === allowedDomain || domain.endsWith('.' + allowedDomain)
+    );
+    
+    if (isAllowedDomain) {
+      continue; // URL is from an allowed domain, carry on
+    }
+    
+    // Check if it's an internal Discord link (to the current server)
+    if ((domain === 'discord.com' || domain.endsWith('.discord.com')) && path.includes('/channels/')) {
+      const pathParts = path.split('/');
+      const channelsIndex = pathParts.indexOf('channels');
+      
+      if (channelsIndex !== -1 && pathParts.length > channelsIndex + 1) {
+        const linkedGuildId = pathParts[channelsIndex + 1];
+        
+        // If it links to the current guild, it's allowed
+        if (linkedGuildId === guild.id) {
+          continue;
+        }
+      }
+    }
+    
+    // It's not an allowed domain or internal Discord link
+    return false;
+  }
+  
+  // Check for plain domain references (without http/https)
+  const plainDomainMatches = [...content.matchAll(plainDomainPattern)];
+  for (const match of plainDomainMatches) {
+    const plainDomain = match[1].toLowerCase();
+    
+    // Skip discord.com as we handle those separately
+    if (plainDomain === 'discord.com' || plainDomain === 'discord.gg') {
+      continue;
+    }
+    
+    // Check if the domain is allowed
+    const isAllowedDomain = ALLOWED_DOMAINS.some(allowedDomain => 
+      plainDomain === allowedDomain || plainDomain.endsWith('.' + allowedDomain)
+    );
+    
+    if (!isAllowedDomain) {
+      return false;
+    }
+  }
+  
+  // No unauthorized URLs found
+  return true;
+}
+
 
 
 module.exports = {
