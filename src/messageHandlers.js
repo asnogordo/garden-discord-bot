@@ -2,7 +2,7 @@ const { DMChannel, MessageType, EmbedBuilder, ChannelType, ButtonBuilder, Button
 const cowsay = require('cowsay');
 const { 
   GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID, EXCLUDED_CHANNELS,
-  EXCLUDED_CHANNEL_PATTERNS
+  EXCLUDED_CHANNEL_PATTERNS,PROTECTED_ROLE_IDS
 } = require('./config');
 const { codeBlock, helloMsgReply, pickFromList, formatDuration,canBeModerated } = require('./utils');
 const { 
@@ -199,11 +199,6 @@ async function handleMessage(message) {
 
     const { author, content, member, channel, guild } = message;
 
-    if (isUserOnTimeout(author.id)) {
-      await handleTimeoutUser(message);
-      return; // Exit early after handling timeout
-    }
-
     // Check if channel should be excluded from message handling
     if (isChannelExcluded(channel)) {
       return;
@@ -229,6 +224,14 @@ async function handleMessage(message) {
       return;
     }
     
+    const isProtected = hasProtectedRole(member);
+    
+    if (!isProtected) {
+      // Check if user is on timeout
+      if (isUserOnTimeout(author.id)) {
+        await handleTimeoutUser(message);
+        return; // Exit early after handling timeout
+      }
     await handleScamMessage(message);
 
     if (!message.deleted && hasUnauthorizedUrl(content, guild)) {
@@ -300,6 +303,7 @@ async function handleMessage(message) {
 
       );
     } 
+  }
   } catch (e) {
     console.error('Something failed handling a message', e);
   } finally {
@@ -327,6 +331,11 @@ function isSuspectedScammer(userId) {
 async function handleScamMessage(message) {
   const { author, content, channel, member, guild } = message;
   const key = `${author.id}:${content}`;
+
+  // Skip for users with protected roles
+  if (hasProtectedRole(member)) {
+    return;
+  }
 
   // Get the bot's member object properly
   const botMember = message.guild.members.cache.get(message.client.user.id);
@@ -769,108 +778,6 @@ function hasUnauthorizedUrl(content, guild) {
   return false; // No unauthorized URLs found
 }
 
-// Function to handle unauthorized URLs with rate limiting
-async function handleUnauthorizedUrl(message) {
-  try {
-    const userId = message.author.id;
-    const userName = message.author.tag;
-    
-    // Get or create user's offense record
-    let userOffense = urlOffenders.get(userId);
-    if (!userOffense) {
-      userOffense = {
-        count: 0,
-        lastOffense: 0,
-        timeoutUntil: 0,
-        timeoutDuration: URL_OFFENSE_TIMEOUT
-      };
-      urlOffenders.set(userId, userOffense);
-    }
-    
-    const now = Date.now();
-    
-    // Check if user is currently in timeout
-    if (userOffense.timeoutUntil > now) {
-      // User is in timeout, delete message without warning
-      await message.delete();
-      
-      // Optional: send DM instead of channel message to avoid cluttering the channel
-      try {
-        await message.author.send({
-          content: `🌱 You're currently in a timeout for posting unauthorized URLs. Please wait ${Math.ceil((userOffense.timeoutUntil - now) / 60000)} more minutes before posting links. 🌿`
-        });
-      } catch (dmError) {
-        // DM failed, user might have DMs disabled
-        console.log(`Failed to send DM to ${userName}: ${dmError.message}`);
-      }
-      
-      return true;
-    }
-    
-    // Delete the message with the unauthorized URL
-    await message.delete();
-    
-    // Update offense count
-    userOffense.count++;
-    userOffense.lastOffense = now;
-    
-    // Check if threshold exceeded
-    if (userOffense.count >= URL_OFFENSE_THRESHOLD) {
-      // Apply timeout
-      userOffense.timeoutDuration = userOffense.timeoutDuration * URL_OFFENSE_ESCALATION;
-      userOffense.timeoutUntil = now + userOffense.timeoutDuration;
-      userOffense.count = 0; // Reset count
-      
-      // Try to timeout the user if possible (requires permissions)
-      try {
-        const member = await message.guild.members.fetch(userId);
-        // Only timeout if bot has permission
-        if (message.guild.members.me.permissions.has("MODERATE_MEMBERS")) {
-          await member.timeout(userOffense.timeoutDuration, 'Multiple unauthorized URL attempts');
-          console.log(`Applied timeout to ${userName} for ${userOffense.timeoutDuration/60000} minutes`);
-        }
-      } catch (timeoutError) {
-        console.error(`Failed to timeout user ${userName}: ${timeoutError.message}`);
-      }
-      
-      // Send warning about timeout
-      await message.channel.send({
-        content: `🌱 <@${userId}>, you've been temporarily restricted from posting links due to multiple unauthorized URL attempts. This timeout will last for ${Math.ceil(userOffense.timeoutDuration/60000)} minutes. 🌸`,
-        allowedMentions: { users: [userId] }
-      });
-    } else {
-      // Regular warning for first/second offense
-      await message.channel.send({
-        content: `🌱 <@${userId}>, your message has been removed because it contained an unauthorized URL. 🌿\n\n🌻 For security reasons, only links from garden.finance, x.com, and this Discord server are allowed. 🌷\n\n🍃 If you need to share other links, please contact a moderator. 🌸\n\n⚠️ Warning ${userOffense.count}/${URL_OFFENSE_THRESHOLD} before temporary restriction.`,
-        allowedMentions: { users: [userId] }
-      });
-    }
-    
-    // Log the offense
-    console.log(`URL offense #${userOffense.count} by ${userName} (${userId})`);
-    
-    // Set up cleanup of old offenses
-    setTimeout(() => {
-      // Reduce offense count after timeout period if not already in timeout
-      const currentOffense = urlOffenders.get(userId);
-      if (currentOffense && currentOffense.timeoutUntil < Date.now()) {
-        if (currentOffense.count > 0) {
-          currentOffense.count--;
-        }
-        // Remove user from map if no offenses and not in timeout
-        if (currentOffense.count === 0 && currentOffense.timeoutUntil < Date.now()) {
-          urlOffenders.delete(userId);
-        }
-      }
-    }, URL_OFFENSE_TIMEOUT);
-    
-    return true;
-  } catch (error) {
-    console.error('Failed to handle unauthorized URL:', error);
-    return false;
-  }
-}
-
 // Function to check if a URL is to an internal Discord channel or an allowed domain
 function isAllowedUrl(content, guild) {
   // Check for URLs with http/https protocol
@@ -935,9 +842,15 @@ function isAllowedUrl(content, guild) {
   return true;
 }
 
-function isUserOnTimeout(userId) {
+function isUserOnTimeout(userId, member) {
+  // If user has a protected role, they're never considered on timeout
+  if (member && hasProtectedRole(member)) {
+    return false;
+  }
+  
   const userOffense = urlOffenders.get(userId);
   if (!userOffense) return false;
+  
   return userOffense.timeoutUntil > Date.now();
 }
 
@@ -984,6 +897,12 @@ async function handleUnauthorizedUrl(message) {
   try {
     const userId = message.author.id;
     const userName = message.author.tag;
+    const member = message.member;
+    
+    // Skip for users with protected roles
+    if (hasProtectedRole(member)) {
+      return false;
+    }
     
     // Get or create user's offense record
     let userOffense = urlOffenders.get(userId);
@@ -1068,6 +987,16 @@ async function handleUnauthorizedUrl(message) {
     console.error('Failed to handle unauthorized URL:', error);
     return false;
   }
+}
+
+// Add a function to check if a user has a protected role
+function hasProtectedRole(member) {
+  if (!member || !member.roles) {
+    return false;
+  }
+  
+  // Check if the user has any of the protected roles
+  return PROTECTED_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
 }
 
 module.exports = {
