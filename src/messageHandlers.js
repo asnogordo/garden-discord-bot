@@ -312,7 +312,7 @@ function isSuspectedScammer(userId) {
 }
 
 async function handleScamMessage(message) {
-  const { author, content, channel, member } = message;
+  const { author, content, channel, member, guild } = message;
   const key = `${author.id}:${content}`;
 
   // Get the bot's member object properly
