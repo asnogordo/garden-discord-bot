@@ -342,7 +342,7 @@ async function handleScamMessage(message) {
     
   // Do scam pattern checks before the moderation check
   const isScamContent = scamPatterns.some(pattern => pattern.test(message.content));
-  const isExternalUrl = !isAllowedUrl(content, guild);
+  const hasExternalUrl = !isAllowedUrl(content, guild);
   const hasDeceptiveUrlContent = hasDeceptiveUrl(message.content); 
 
   if (!canBeModerated(member, botMember)) {
@@ -354,7 +354,7 @@ async function handleScamMessage(message) {
       scamReasons.push("matched scam pattern");
     }
     
-    if (isExternalUrl) {
+    if (hasExternalUrl) {
       scamDetected = true;
       scamReasons.push("contains external URL");
     }
@@ -932,6 +932,9 @@ async function handleUnauthorizedUrl(message) {
     userOffense.count++;
     userOffense.lastOffense = now;
     
+    // Prepare DM content based on whether threshold was exceeded
+    let dmContent = '';
+    
     // Check if threshold exceeded
     if (userOffense.count >= URL_OFFENSE_THRESHOLD) {
       // Apply timeout
@@ -951,17 +954,32 @@ async function handleUnauthorizedUrl(message) {
         console.error(`Failed to timeout user ${userName}: ${timeoutError.message}`);
       }
       
-      // Send warning about timeout
-      await message.channel.send({
-        content: `🌱 <@${userId}>, you've been temporarily restricted from posting links due to multiple unauthorized URL attempts. This timeout will last for ${Math.ceil(userOffense.timeoutDuration/60000)} minutes. 🌸`,
-        allowedMentions: { users: [userId] }
-      });
+      // Set timeout notification message for DM
+      dmContent = `🌱 **Message Removed - Timeout Applied**\n\nYour message in #${message.channel.name} was removed because it contained an unauthorized URL.\n\n🚫 You've been temporarily restricted from posting in the server. This timeout will last for ${Math.ceil(userOffense.timeoutDuration/60000)} minutes.\n\n🌸 For security reasons, only links from garden.finance, x.com, and internal Discord server links are allowed.`;
     } else {
       // Regular warning for first/second offense
-      await message.channel.send({
-        content: `🌱 <@${userId}>, your message has been removed because it contained an unauthorized URL. 🌿\n\n🌻 For security reasons, only links from garden.finance, x.com, and this Discord server are allowed. 🌷\n\n🍃 If you need to share other links, please contact a moderator. 🌸\n\n⚠️ Warning ${userOffense.count}/${URL_OFFENSE_THRESHOLD} before temporary restriction.`,
+      dmContent = `🌱 **Message Removed**\n\nYour message in #${message.channel.name} was removed because it contained an unauthorized URL.\n\n🌻 For security reasons, only links from garden.finance, x.com, and internal Discord server links are allowed.\n\n🍃 If you need to share other links, please contact a moderator.\n\n⚠️ Warning ${userOffense.count}/${URL_OFFENSE_THRESHOLD} before temporary restriction.`;
+    }
+    
+    // Send DM to user
+    try {
+      await message.author.send({ content: dmContent });
+    } catch (dmError) {
+      // DM failed, user might have DMs disabled - fall back to a temporary channel message
+      console.log(`Failed to send DM to ${userName}: ${dmError.message}`);
+      
+      // Send a brief notice in the channel that will be deleted shortly
+      const tempMsg = await message.channel.send({
+        content: `<@${userId}> Your message with an unauthorized URL was removed. Please check server rules about acceptable links.`,
         allowedMentions: { users: [userId] }
       });
+      
+      // Delete the notice after a short delay
+      setTimeout(() => {
+        if (tempMsg.deletable) {
+          tempMsg.delete().catch(err => console.error('Failed to delete temp message:', err));
+        }
+      }, 8000); // Delete after 8 seconds
     }
     
     // Log the offense
