@@ -1,4 +1,4 @@
-const { DMChannel, MessageType, EmbedBuilder, ChannelType, ButtonBuilder, ButtonStyle,ActionRowBuilder  } = require('discord.js');
+const { DMChannel, MessageType, EmbedBuilder, ChannelType, ButtonBuilder, ButtonStyle, ActionRowBuilder, PermissionFlagsBits } = require('discord.js');
 const cowsay = require('cowsay');
 const { 
   GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID, EXCLUDED_CHANNELS,
@@ -18,14 +18,12 @@ const SCAMMER_TIMEOUT_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds
 const MAX_MENTIONS = 4; // Maximum number of mentions allowed before action is taken
 const MENTION_COOLDOWN = 10 * 60 * 1000; // 10 minutes cooldown for mention count
 const MAX_SPAM_OCCURRENCES = 7; // Maximum number of spam occurrences before taking action
-
-// Add these constants at the top with your other constants
 const ALLOWED_DOMAINS = [
   'garden.finance',
-  'x.com'
+  'x.com',
+  'tenor.com'
 ];
 
-// Add these constants with your other constants
 const URL_OFFENSE_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
 const URL_OFFENSE_THRESHOLD = 3; // Number of offenses before timeout
 const URL_OFFENSE_ESCALATION = 2; // Multiplier for repeat offenders
@@ -946,7 +944,7 @@ async function handleUnauthorizedUrl(message) {
       try {
         const member = await message.guild.members.fetch(userId);
         // Only timeout if bot has permission
-        if (message.guild.members.me.permissions.has("MODERATE_MEMBERS")) {
+        if (message.guild.members.me.permissions.has(PermissionFlagsBits.ModerateMembers)) {
           await member.timeout(userOffense.timeoutDuration, 'Multiple unauthorized URL attempts');
           console.log(`Applied timeout to ${userName} for ${userOffense.timeoutDuration/60000} minutes`);
         }
@@ -1023,5 +1021,6 @@ module.exports = {
   addSuspectedScammer,
   quarantineMessage,
   celebratoryGifs,
-  suspiciousUserThreads
+  suspiciousUserThreads,
+  urlOffenders
 };
