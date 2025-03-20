@@ -21,7 +21,15 @@ const MAX_SPAM_OCCURRENCES = 7; // Maximum number of spam occurrences before tak
 const ALLOWED_DOMAINS = [
   'garden.finance',
   'x.com',
-  'tenor.com'
+  'tenor.com',
+  'giphy.com',
+  'gfycat.com',
+  'media.giphy.com',
+  'media.tenor.com',
+  'media.discordapp.net', // Discord's CDN for attachments
+  'cdn.discordapp.com',   // Discord's CDN
+  'images-ext-1.discordapp.net',
+  'images-ext-2.discordapp.net'
 ];
 
 const URL_OFFENSE_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
@@ -232,9 +240,9 @@ async function handleMessage(message) {
       }
     await handleScamMessage(message);
 
-    if (!message.deleted && hasUnauthorizedUrl(content, guild)) {
+    if (!message.deleted && hasUnauthorizedUrl(message, guild)) {
       await handleUnauthorizedUrl(message);
-      return; // Exit early after handling the unauthorized URL
+      return;
     }
     
     if (wenMoon.test(message.content)) {
@@ -706,7 +714,21 @@ function hasDeceptiveUrl(content) {
 }
 
 //Function to detect unauthorized URLs
-function hasUnauthorizedUrl(content, guild) {
+function hasUnauthorizedUrl(message, guild) {
+  const content = message.content;
+
+  // Skip if the message only contains a Discord sticker or a gif
+  const isOnlySticker = message.stickers && message.stickers.size > 0 && !content.trim();
+  const isOnlyGif = message.embeds && 
+    message.embeds.length === 1 && 
+    message.embeds[0].type === 'gifv' && 
+    !content.trim();
+  
+  // Skip URL checking for pure media messages
+  if (isOnlySticker || isOnlyGif) {
+    return false;
+  }
+
   // Regular expression to match URLs
   const urlRegex = /https?:\/\/([^\/\s]+)(\/[^\s]*)?/gi;
   const plainUrlRegex = /(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|app|dev|info|co|gg))\b/gi;
