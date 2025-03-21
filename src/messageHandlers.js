@@ -32,13 +32,6 @@ const ALLOWED_DOMAINS = [
   'images-ext-2.discordapp.net'
 ];
 
-const URL_OFFENSE_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
-const URL_OFFENSE_THRESHOLD = 3; // Number of offenses before timeout
-const URL_OFFENSE_ESCALATION = 2; // Multiplier for repeat offenders
-
-// Map to track user URL offenses
-const urlOffenders = new Map();
-
 const suspiciousUserThreads = new Map();
 
 //message locking to reduce race conditions
@@ -233,11 +226,6 @@ async function handleMessage(message) {
     const isProtected = hasProtectedRole(member);
     
     if (!isProtected) {
-      // Check if user is on timeout
-      if (isUserOnTimeout(author.id)) {
-        await handleTimeoutUser(message);
-        return; // Exit early after handling timeout
-      }
     await handleScamMessage(message);
 
     if (!message.deleted && hasUnauthorizedUrl(message, guild)) {
@@ -862,124 +850,22 @@ function isAllowedUrl(content, guild) {
   return true;
 }
 
-function isUserOnTimeout(userId, member) {
-  // If user has a protected role, they're never considered on timeout
-  if (member && hasProtectedRole(member)) {
-    return false;
-  }
-  
-  const userOffense = urlOffenders.get(userId);
-  if (!userOffense) return false;
-  
-  return userOffense.timeoutUntil > Date.now();
-}
-
-// Function to handle messages from users on timeout
-async function handleTimeoutUser(message) {
-  try {
-    const userId = message.author.id;
-    const userOffense = urlOffenders.get(userId);
-    
-    if (!userOffense) return false;
-    
-    const now = Date.now();
-    
-    // Check if user is currently in timeout
-    if (userOffense.timeoutUntil > now) {
-      // User is in timeout, delete message
-      await message.delete();
-      
-      // Send DM reminder about timeout status (with rate limiting to avoid spam)
-      if (now - (userOffense.lastReminderSent || 0) > 30000) { // Only send reminder every 30 seconds
-        try {
-          await message.author.send({
-            content: `🌱 You're currently in a timeout for posting unauthorized URLs. Please wait ${Math.ceil((userOffense.timeoutUntil - now) / 60000)} more minutes before posting in the server. 🌿`
-          });
-          userOffense.lastReminderSent = now;
-        } catch (dmError) {
-          // DM failed, user might have DMs disabled
-          console.log(`Failed to send timeout DM to ${message.author.tag}: ${dmError.message}`);
-        }
-      }
-      
-      return true; // Message was handled (deleted)
-    }
-    
-    return false; // User not on timeout
-  } catch (error) {
-    console.error('Failed to handle timeout user message:', error);
-    return false;
-  }
-}
-
-// Function to handle unauthorized URLs with rate limiting
+// Function to handle unauthorized URLs
 async function handleUnauthorizedUrl(message) {
   try {
     const userId = message.author.id;
     const userName = message.author.tag;
-    const member = message.member;
     
     // Skip for users with protected roles
-    if (hasProtectedRole(member)) {
+    if (hasProtectedRole(message.member)) {
       return false;
-    }
-    
-    // Get or create user's offense record
-    let userOffense = urlOffenders.get(userId);
-    if (!userOffense) {
-      userOffense = {
-        count: 0,
-        lastOffense: 0,
-        timeoutUntil: 0,
-        timeoutDuration: URL_OFFENSE_TIMEOUT,
-        lastReminderSent: 0
-      };
-      urlOffenders.set(userId, userOffense);
-    }
-    
-    const now = Date.now();
-    
-    // Check if user is currently in timeout - this would be handled by handleTimeoutUser
-    // but we'll still check here for safety
-    if (userOffense.timeoutUntil > now) {
-      return await handleTimeoutUser(message);
     }
     
     // Delete the message with the unauthorized URL
     await message.delete();
     
-    // Update offense count
-    userOffense.count++;
-    userOffense.lastOffense = now;
-    
-    // Prepare DM content based on whether threshold was exceeded
-    let dmContent = '';
-    
-    // Check if threshold exceeded
-    if (userOffense.count >= URL_OFFENSE_THRESHOLD) {
-      // Apply timeout
-      userOffense.timeoutDuration = userOffense.timeoutDuration * URL_OFFENSE_ESCALATION;
-      userOffense.timeoutUntil = now + userOffense.timeoutDuration;
-      userOffense.count = 0; // Reset count
-      
-      // Try to timeout the user if possible (requires permissions)
-      try {
-        const member = await message.guild.members.fetch(userId);
-        // Only timeout if bot has permission
-        if (message.guild.members.me.permissions.has(PermissionFlagsBits.ModerateMembers)) {
-          await member.timeout(userOffense.timeoutDuration, 'Multiple unauthorized URL attempts');
-          console.log(`Applied timeout to ${userName} for ${userOffense.timeoutDuration/60000} minutes`);
-        }
-      } catch (timeoutError) {
-        console.error(`Failed to timeout user ${userName}: ${timeoutError.message}`);
-      }
-      
-      // Set timeout notification message for DM
-      dmContent = `🌱 **Message Removed - Timeout Applied**\n\nYour message in #${message.channel.name} was removed because it contained an unauthorized URL.\n\n🚫 You've been temporarily restricted from posting in the server. This timeout will last for ${Math.ceil(userOffense.timeoutDuration/60000)} minutes.\n\n🌸 For security reasons, only links from garden.finance, x.com, and internal Discord server links are allowed.`;
-    } else {
-      // Regular warning for first/second offense
-      dmContent = `🌱 **Message Removed**\n\nYour message in #${message.channel.name} was removed because it contained an unauthorized URL.\n\n🌻 For security reasons, only links from garden.finance, x.com, and internal Discord server links are allowed.\n\n🍃 If you need to share other links, please contact a moderator.\n\n⚠️ Warning ${userOffense.count}/${URL_OFFENSE_THRESHOLD} before temporary restriction.`;
-    }
+    // Simple notification message
+    const dmContent = `🌱 **Message Removed**\n\nYour message in #${message.channel.name} was removed because it contained an unauthorized URL.\n\n🌻 For security reasons, only links from garden.finance, x.com, and internal Discord server links are allowed.\n\n🍃 If you need to share other links, please contact a moderator.`;
     
     // Send DM to user
     try {
@@ -1002,23 +888,8 @@ async function handleUnauthorizedUrl(message) {
       }, 8000); // Delete after 8 seconds
     }
     
-    // Log the offense
-    console.log(`URL offense #${userOffense.count} by ${userName} (${userId})`);
-    
-    // Set up cleanup of old offenses
-    setTimeout(() => {
-      // Reduce offense count after timeout period if not already in timeout
-      const currentOffense = urlOffenders.get(userId);
-      if (currentOffense && currentOffense.timeoutUntil < Date.now()) {
-        if (currentOffense.count > 0) {
-          currentOffense.count--;
-        }
-        // Remove user from map if no offenses and not in timeout
-        if (currentOffense.count === 0 && currentOffense.timeoutUntil < Date.now()) {
-          urlOffenders.delete(userId);
-        }
-      }
-    }, URL_OFFENSE_TIMEOUT);
+    // Log the action
+    console.log(`Unauthorized URL removed from ${userName} (${userId})`);
     
     return true;
   } catch (error) {
@@ -1043,6 +914,5 @@ module.exports = {
   addSuspectedScammer,
   quarantineMessage,
   celebratoryGifs,
-  suspiciousUserThreads,
-  urlOffenders
+  suspiciousUserThreads
 };
