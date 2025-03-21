@@ -224,11 +224,9 @@ async function handleMessage(message) {
     }
     
     const isProtected = hasProtectedRole(member);
-    
-    if (!isProtected) {
     await handleScamMessage(message);
 
-    if (!message.deleted && hasUnauthorizedUrl(message, guild)) {
+    if (!message.deleted && hasUnauthorizedUrl(message, guild) && !isProtected) {
       await handleUnauthorizedUrl(message);
       return;
     }
@@ -297,7 +295,6 @@ async function handleMessage(message) {
 
       );
     } 
-  }
   } catch (e) {
     console.error('Something failed handling a message', e);
   } finally {
@@ -855,11 +852,6 @@ async function handleUnauthorizedUrl(message) {
   try {
     const userId = message.author.id;
     const userName = message.author.tag;
-    
-    // Skip for users with protected roles
-    if (hasProtectedRole(message.member)) {
-      return false;
-    }
     
     // Delete the message with the unauthorized URL
     await message.delete();
