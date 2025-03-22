@@ -32,6 +32,14 @@ const ALLOWED_DOMAINS = [
   'images-ext-2.discordapp.net'
 ];
 
+const URL_SHORTENERS = [
+  'bit.ly', 'tinyurl.com', 'goo.gl', 't.co', 'is.gd', 'buff.ly', 'ow.ly', 
+  'tr.im', 'dsc.gg', 'adf.ly', 'tiny.cc', 'shorten.me', 'clck.ru', 'cutt.ly',
+  'rebrand.ly', 'short.io', 'bl.ink', 'snip.ly', 'lnk.to', 'hive.am',
+  'shor.by', 'bc.vc', 'v.gd', 'qps.ru', 'spoo.me', 'x.co', 'yourls.org',
+  'shorturl.at', 'tny.im', 'u.to', 'url.ie', 'shrturi.com', 's.id'
+];
+
 const suspiciousUserThreads = new Map();
 
 let dailyInterceptCount = 0;
@@ -343,7 +351,8 @@ async function handleScamMessage(message) {
   // Do scam pattern checks before the moderation check
   const isScamContent = scamPatterns.some(pattern => pattern.test(message.content));
   const hasExternalUrl = !isAllowedUrl(content, guild);
-  const hasDeceptiveUrlContent = hasDeceptiveUrl(message.content); 
+  const hasDeceptiveUrlContent = hasDeceptiveUrl(message.content);
+  const hasShortenerUrl = containsUrlShortener(message.content);
 
   if (!canBeModerated(member, botMember)) {
     let scamDetected = false;
@@ -354,7 +363,7 @@ async function handleScamMessage(message) {
       scamReasons.push("matched scam pattern");
     }
     
-    if (hasExternalUrl) {
+    if (hasExternalUrl||hasShortenerUrl) {
       scamDetected = true;
       scamReasons.push("contains external URL");
     }
@@ -406,7 +415,7 @@ async function handleScamMessage(message) {
 
   const isTargetedScam = isTargetedScamMessage(message, hasOnlyBaseRole, hasMentions, hasExternalUrl);
 
-  if (((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent) && hasOnlyBaseRole) || isTargetedScam || isScamUser) {
+  if (((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl) && hasOnlyBaseRole) || isTargetedScam || isScamUser) {
     await quarantineMessage(message, new Set([channel.id]));
   }
 
@@ -723,6 +732,10 @@ function hasUnauthorizedUrl(message, guild) {
     return false;
   }
 
+  if (containsUrlShortener(content)) {
+    return true;
+  }
+
   // Regular expression to match URLs
   const urlRegex = /https?:\/\/([^\/\s]+)(\/[^\s]*)?/gi;
   const plainUrlRegex = /(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|app|dev|info|co|gg))\b/gi;
@@ -790,6 +803,33 @@ function hasUnauthorizedUrl(message, guild) {
   }
   
   return false; // No unauthorized URLs found
+}
+
+function containsUrlShortener(content) {
+  // Regular expression to match URLs
+  const urlRegex = /https?:\/\/([^\/\s]+)(\/[^\s]*)?/gi;
+  let match;
+  
+  while ((match = urlRegex.exec(content)) !== null) {
+    const domain = match[1].toLowerCase();
+    
+    // Check if the domain is a known URL shortener
+    if (URL_SHORTENERS.some(shortener => domain === shortener || domain.endsWith('.' + shortener))) {
+      console.log(`URL shortener detected: ${domain}`);
+      return true;
+    }
+  }
+  
+  // Also check for shortened links without http/https
+  for (const shortener of URL_SHORTENERS) {
+    const shortenerRegex = new RegExp(`\\b${shortener}\\b`, 'i');
+    if (shortenerRegex.test(content)) {
+      console.log(`URL shortener detected without protocol: ${shortener}`);
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 // Function to check if a URL is to an internal Discord channel or an allowed domain
