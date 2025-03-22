@@ -11,4 +11,4 @@ services:
         limits:
           memory: 1G
         reservations:
-          memory: 256M
+          memory: 600M

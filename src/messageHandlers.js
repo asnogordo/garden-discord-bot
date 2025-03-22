@@ -1,8 +1,8 @@
-const { DMChannel, MessageType, EmbedBuilder, ChannelType, ButtonBuilder, ButtonStyle,ActionRowBuilder  } = require('discord.js');
+const { DMChannel, MessageType, EmbedBuilder, ChannelType, ButtonBuilder, ButtonStyle, ActionRowBuilder, PermissionFlagsBits } = require('discord.js');
 const cowsay = require('cowsay');
 const { 
   GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID, EXCLUDED_CHANNELS,
-  EXCLUDED_CHANNEL_PATTERNS
+  EXCLUDED_CHANNEL_PATTERNS,PROTECTED_ROLE_IDS
 } = require('./config');
 const { codeBlock, helloMsgReply, pickFromList, formatDuration,canBeModerated } = require('./utils');
 const { 
@@ -18,8 +18,32 @@ const SCAMMER_TIMEOUT_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds
 const MAX_MENTIONS = 4; // Maximum number of mentions allowed before action is taken
 const MENTION_COOLDOWN = 10 * 60 * 1000; // 10 minutes cooldown for mention count
 const MAX_SPAM_OCCURRENCES = 7; // Maximum number of spam occurrences before taking action
+const ALLOWED_DOMAINS = [
+  'garden.finance',
+  'x.com',
+  'tenor.com',
+  'giphy.com',
+  'gfycat.com',
+  'media.giphy.com',
+  'media.tenor.com',
+  'media.discordapp.net', // Discord's CDN for attachments
+  'cdn.discordapp.com',   // Discord's CDN
+  'images-ext-1.discordapp.net',
+  'images-ext-2.discordapp.net'
+];
+
+const URL_SHORTENERS = [
+  'bit.ly', 'tinyurl.com', 'goo.gl', 't.co', 'is.gd', 'buff.ly', 'ow.ly', 
+  'tr.im', 'dsc.gg', 'adf.ly', 'tiny.cc', 'shorten.me', 'clck.ru', 'cutt.ly',
+  'rebrand.ly', 'short.io', 'bl.ink', 'snip.ly', 'lnk.to', 'hive.am',
+  'shor.by', 'bc.vc', 'v.gd', 'qps.ru', 'spoo.me', 'x.co', 'yourls.org',
+  'shorturl.at', 'tny.im', 'u.to', 'url.ie', 'shrturi.com', 's.id'
+];
 
 const suspiciousUserThreads = new Map();
+
+let dailyInterceptCount = 0;
+let lastReportTime = new Date().setHours(0, 0, 0, 0);
 
 //message locking to reduce race conditions
 const processingLock = new Set();
@@ -36,6 +60,13 @@ const userDisplayName = [
 ];
 
 const scamPatterns = [
+  /refer to the admin/i,
+  /\[OPEN-TICKET\]/i,
+  /(?:SUBMIT|CREATE|OPEN)[\s-]*(?:QUERY|TICKET)/i,
+  /to complain to team/i,
+  /dsc\.gg\//i,
+  /discord\.gg\/[a-zA-Z0-9]+\s*@/i,
+  /https?:\/\/.*\s*@[a-zA-Z0-9]+/i,
   /airdrop is live now/i,
   /collaborated with opensea/i,
   /claim as soon as possible/i,
@@ -83,8 +114,8 @@ const scamPatterns = [
   /https.*(?:👆|👇|👉)/i
 ];
 
-const urlPattern = /https?:\/\/[^\s]+/i;
-const internalUrl = /(?<!https?:\/\/)(?:www\.)?(discord\.(?:com|gg)|discord(?:app)?\.com)(\S*)/i;
+const urlPattern = /https?:\/\/([^\/\s]+)([^\s]*)/gi;
+const plainDomainPattern = /(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|app|dev|info|co|gg|in|ca|us|uk|edu|gov|biz|me|tv|ai|so|tech|store|shop|app|cloud|de|fr|jp|ru|cn|au|nl|se|br|it|es|eu|nz|at|ch|pl|kr|za|crypto|eth|nft|dao|bitcoin|defi|chain|wallet))\b/gi;const internalUrl = /(?<!https?:\/\/)(?:www\.)?(discord\.(?:com|gg)|discord(?:app)?\.com)(\S*)/i;
 const howToStakeOrClaim = /.*(?:how|where).*(?:(?:stake|staking|earn|claim).*(?:btc|bitcoin|rewards?|seed)|(?:btc|bitcoin|rewards?).*(?:stake|staking|earn|claim)|(?:get|receive).*(?:staking|staked).*(btc|bitcoin|rewards?)).*/i;
 const howToGetSeed = /(?:how|where).*(?:get|buy|purchase|acquire|swap for).*seed\??/i;
 const wenVote = /.*(wh?en) .*(vote|voting).*/i;
@@ -182,7 +213,7 @@ async function handleMessage(message) {
 
     processingLock.add(messageId);
 
-    const { author, content, member, channel } = message;
+    const { author, content, member, channel, guild } = message;
 
     // Check if channel should be excluded from message handling
     if (isChannelExcluded(channel)) {
@@ -209,7 +240,13 @@ async function handleMessage(message) {
       return;
     }
     
+    const isProtected = hasProtectedRole(member);
     await handleScamMessage(message);
+
+    if (!message.deleted && hasUnauthorizedUrl(message, guild) && !isProtected) {
+      await handleUnauthorizedUrl(message);
+      return;
+    }
     
     if (wenMoon.test(message.content)) {
       await message.reply(pickMoon());
@@ -258,13 +295,6 @@ async function handleMessage(message) {
       await message.reply(
         "You can check your transaction status at Garden's explorer page 🌸: <https://explorer.garden.finance/>"
       );
-    } else if (metricsAnalytics.test(message.content)) {
-      await message.reply(
-        "You can check Garden Finance metrics on:\n\n" +
-        "📊 **DefiLlama**: <https://defillama.com/protocol/garden>\n" +
-        "📈 **Dune Analytics**: <https://dune.com/garden_finance/gardenfinance>\n" +
-        "🔍 **Garden Explorer**: <https://explorer.garden.finance/>"
-      );
     } else if (stakingIssues.test(message.content)) {
       await message.reply(`If you are having issues with staking, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
     } else if (swapIssues.test(message.content)) {
@@ -273,7 +303,15 @@ async function handleMessage(message) {
       await message.reply(`If you are having issues claiming $SEED, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
     } else if (orderIssues.test(message.content) || transactionIssues.test(message.content)) {
       await message.reply(`If you have questions about a transaction or need help with a refund, please provide your order ID and open a support ticket in <#${SUPPORT_CHANNEL_ID}>`);
-    }
+    } else if (metricsAnalytics.test(message.content)) {
+      await message.reply(
+        "You can check Garden Finance metrics on:\n\n" +
+        "🔍 **Garden Explorer**: <https://explorer.garden.finance/>\n" +
+        "📈 **Dune Analytics**: <https://dune.com/garden_finance/gardenfinance>\n" +
+        "📊 **DefiLlama**: <https://defillama.com/protocol/garden>"
+
+      );
+    } 
   } catch (e) {
     console.error('Something failed handling a message', e);
   } finally {
@@ -299,16 +337,22 @@ function isSuspectedScammer(userId) {
 }
 
 async function handleScamMessage(message) {
-  const { author, content, channel, member } = message;
+  const { author, content, channel, member, guild } = message;
   const key = `${author.id}:${content}`;
+
+  // Skip for users with protected roles
+  if (hasProtectedRole(member)) {
+    return;
+  }
 
   // Get the bot's member object properly
   const botMember = message.guild.members.cache.get(message.client.user.id);
     
   // Do scam pattern checks before the moderation check
   const isScamContent = scamPatterns.some(pattern => pattern.test(message.content));
-  const hasExternalUrl = urlPattern.test(message.content) || internalUrl.test(message.content);
-  const hasDeceptiveUrlContent = hasDeceptiveUrl(message.content); 
+  const hasExternalUrl = !isAllowedUrl(content, guild);
+  const hasDeceptiveUrlContent = hasDeceptiveUrl(message.content);
+  const hasShortenerUrl = containsUrlShortener(message.content);
 
   if (!canBeModerated(member, botMember)) {
     let scamDetected = false;
@@ -319,7 +363,7 @@ async function handleScamMessage(message) {
       scamReasons.push("matched scam pattern");
     }
     
-    if (hasExternalUrl) {
+    if (hasExternalUrl||hasShortenerUrl) {
       scamDetected = true;
       scamReasons.push("contains external URL");
     }
@@ -371,7 +415,7 @@ async function handleScamMessage(message) {
 
   const isTargetedScam = isTargetedScamMessage(message, hasOnlyBaseRole, hasMentions, hasExternalUrl);
 
-  if (((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent) && hasOnlyBaseRole) || isTargetedScam || isScamUser) {
+  if (((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl) && hasOnlyBaseRole) || isTargetedScam || isScamUser) {
     await quarantineMessage(message, new Set([channel.id]));
   }
 
@@ -672,6 +716,277 @@ function hasDeceptiveUrl(content) {
          hasSuspiciousDomain || hasHyphenatedDomain || hasTicketRelatedUrl;
 }
 
+//Function to detect unauthorized URLs
+function hasUnauthorizedUrl(message, guild) {
+  const content = message.content;
+
+  // Skip if the message only contains a Discord sticker or a gif
+  const isOnlySticker = message.stickers && message.stickers.size > 0 && !content.trim();
+  const isOnlyGif = message.embeds && 
+    message.embeds.length === 1 && 
+    message.embeds[0].type === 'gifv' && 
+    !content.trim();
+  
+  // Skip URL checking for pure media messages
+  if (isOnlySticker || isOnlyGif) {
+    return false;
+  }
+
+  if (containsUrlShortener(content)) {
+    return true;
+  }
+
+  // Regular expression to match URLs
+  const urlRegex = /https?:\/\/([^\/\s]+)(\/[^\s]*)?/gi;
+  const plainUrlRegex = /(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|app|dev|info|co|gg))\b/gi;
+  
+  // First check for standard URLs (with http/https)
+  let match;
+  while ((match = urlRegex.exec(content)) !== null) {
+    const domain = match[1].toLowerCase();
+    const path = match[2] || '';
+    
+    // Check if the domain is in the allowed list
+    const isAllowed = ALLOWED_DOMAINS.some(allowedDomain => 
+      domain === allowedDomain || domain.endsWith('.' + allowedDomain)
+    );
+    
+    if (isAllowed) {
+      continue; // Domain is explicitly allowed
+    }
+    
+    // Special handling for Discord URLs
+    if (domain === 'discord.com' || domain === 'discord.gg' || domain.endsWith('.discord.com')) {
+      // Check if it's a link to internal channels/messages in the current guild
+      if (path.includes('/channels/')) {
+        // Extract guild ID from the path
+        const pathParts = path.split('/');
+        const channelsIndex = pathParts.indexOf('channels');
+        
+        if (channelsIndex !== -1 && pathParts.length > channelsIndex + 1) {
+          const linkedGuildId = pathParts[channelsIndex + 1];
+          
+          // If it links to the current guild, allow it
+          if (linkedGuildId === guild.id) {
+            continue;
+          }
+        }
+      }
+      
+      // If it's a Discord invite link to external servers, it's unauthorized
+      if (domain === 'discord.gg' || path.includes('/invite/')) {
+        return true;
+      }
+      
+      // Allow other Discord links (like to Discord support, etc.)
+      continue;
+    }
+    
+    // If we get here, the URL is not from an allowed domain or internal Discord link
+    console.log(`Unauthorized URL detected: ${domain}`);
+    return true;
+  }
+  
+  // Also check for URLs without the protocol (e.g., ghost.com instead of https://ghost.com)
+  while ((match = plainUrlRegex.exec(content)) !== null) {
+    const plainDomain = match[1].toLowerCase();
+    
+    // Check if the domain is in the allowed list
+    const isAllowed = ALLOWED_DOMAINS.some(allowedDomain => 
+      plainDomain === allowedDomain || plainDomain.endsWith('.' + allowedDomain)
+    );
+    
+    if (!isAllowed && plainDomain !== 'discord.com' && plainDomain !== 'discord.gg') {
+      console.log(`Unauthorized plain domain detected: ${plainDomain}`);
+      return true;
+    }
+  }
+  
+  return false; // No unauthorized URLs found
+}
+
+function containsUrlShortener(content) {
+  // Regular expression to match URLs
+  const urlRegex = /https?:\/\/([^\/\s]+)(\/[^\s]*)?/gi;
+  let match;
+  
+  while ((match = urlRegex.exec(content)) !== null) {
+    const domain = match[1].toLowerCase();
+    
+    // Check if the domain is a known URL shortener
+    if (URL_SHORTENERS.some(shortener => domain === shortener || domain.endsWith('.' + shortener))) {
+      console.log(`URL shortener detected: ${domain}`);
+      return true;
+    }
+  }
+  
+  // Also check for shortened links without http/https
+  for (const shortener of URL_SHORTENERS) {
+    const shortenerRegex = new RegExp(`\\b${shortener}\\b`, 'i');
+    if (shortenerRegex.test(content)) {
+      console.log(`URL shortener detected without protocol: ${shortener}`);
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// Function to check if a URL is to an internal Discord channel or an allowed domain
+function isAllowedUrl(content, guild) {
+  // Check for URLs with http/https protocol
+  let match;
+  while ((match = urlPattern.exec(content)) !== null) {
+    const fullUrl = match[0];
+    const domain = match[1].toLowerCase();
+    const path = match[2] || '';
+    
+    // Check allowed domains first
+    const isAllowedDomain = ALLOWED_DOMAINS.some(allowedDomain => 
+      domain === allowedDomain || domain.endsWith('.' + allowedDomain)
+    );
+    
+    if (isAllowedDomain) {
+      continue; // URL is from an allowed domain, carry on
+    }
+    
+    // Check if it's an internal Discord link (to the current server)
+    if ((domain === 'discord.com' || domain.endsWith('.discord.com')) && path.includes('/channels/')) {
+      const pathParts = path.split('/');
+      const channelsIndex = pathParts.indexOf('channels');
+      
+      if (channelsIndex !== -1 && pathParts.length > channelsIndex + 1) {
+        const linkedGuildId = pathParts[channelsIndex + 1];
+        
+        // If it links to the current guild, it's allowed
+        if (linkedGuildId === guild.id) {
+          continue;
+        }
+      }
+    }
+    
+    // It's not an allowed domain or internal Discord link
+    return false;
+  }
+  
+  // Check for plain domain references (without http/https)
+  urlPattern.lastIndex = 0; // Reset the regex index
+  plainDomainPattern.lastIndex = 0; // Reset the regex index
+  
+  let plainMatch;
+  while ((plainMatch = plainDomainPattern.exec(content)) !== null) {
+    const plainDomain = plainMatch[1].toLowerCase();
+    
+    // Skip discord.com as we handle those separately
+    if (plainDomain === 'discord.com' || plainDomain === 'discord.gg') {
+      continue;
+    }
+    
+    // Check if the domain is allowed
+    const isAllowedDomain = ALLOWED_DOMAINS.some(allowedDomain => 
+      plainDomain === allowedDomain || plainDomain.endsWith('.' + allowedDomain)
+    );
+    
+    if (!isAllowedDomain) {
+      return false;
+    }
+  }
+  
+  // No unauthorized URLs found
+  return true;
+}
+
+// Function to handle unauthorized URLs
+async function handleUnauthorizedUrl(message) {
+  try {
+    const userId = message.author.id;
+    const userName = message.author.tag;
+    
+    // Delete the message with the unauthorized URL
+    await message.delete();
+    
+    dailyInterceptCount++; //keep track of daily intercepts
+
+    // Simple notification message
+    const dmContent = `🌱 Hey ${message.author.username}, your message in #${message.channel.name} was removed due to an unauthorized URL.\n\n Only links from garden.finance, x.com, and internal Discord links are allowed. If you need to share something else, raise a ticket and our mods will help you🌸.`;    
+    // Send DM to user
+    try {
+      await message.author.send({ content: dmContent });
+    } catch (dmError) {
+      // DM failed, user might have DMs disabled - fall back to a temporary channel message
+      console.log(`Failed to send DM to ${userName}: ${dmError.message}`);
+      
+      // Send a brief notice in the channel that will be deleted shortly
+      const tempMsg = await message.channel.send({
+        content: `<@${userId}> Your message with an unauthorized URL was removed. Please check server rules about acceptable links.`,
+        allowedMentions: { users: [userId] }
+      });
+      
+      // Delete the notice after a short delay
+      setTimeout(() => {
+        if (tempMsg.deletable) {
+          tempMsg.delete().catch(err => console.error('Failed to delete temp message:', err));
+        }
+      }, 8000); // Delete after 8 seconds
+    }
+    
+    // Log the action
+    console.log(`Unauthorized URL removed from ${userName} (${userId})`);
+    
+    return true;
+  } catch (error) {
+    console.error('Failed to handle unauthorized URL:', error);
+    return false;
+  }
+}
+
+// Add a function to check if a user has a protected role
+function hasProtectedRole(member) {
+  if (!member || !member.roles) {
+    return false;
+  }
+  
+  // Check if the user has any of the protected roles
+  return PROTECTED_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
+}
+
+function setupSimpleDailyReport(client) {
+  // Check every hour if we should send a report
+  setInterval(async () => {
+    const now = new Date();
+    const todayMidnight = new Date().setHours(0, 0, 0, 0);
+    
+    // If it's a new day and we haven't reported yet
+    if (todayMidnight > lastReportTime) {
+      try {
+        // Get the guild
+        const guild = client.guilds.cache.first();
+        if (!guild) return;
+        
+        // Get the report channel
+        const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
+        if (!reportChannel) return;
+        
+        // Format the date for yesterday (UTC)
+        const yesterday = new Date(lastReportTime);
+        const formattedDate = yesterday.toISOString().split('T')[0];
+        
+        // Send the report with the date
+        await reportChannel.send(
+          `📊 **URL Filter Report for ${formattedDate} (UTC)**\n\nUnauthorized URLs intercepted: **${dailyInterceptCount}**`
+        );
+        
+        // Reset for the new day
+        lastReportTime = todayMidnight;
+        dailyInterceptCount = 0;
+        
+        console.log(`Sent URL report for ${formattedDate}`);
+      } catch (error) {
+        console.error('Error sending daily report:', error);
+      }
+    }
+  }, 60 * 60 * 1000); // Check once per hour
+}
 
 module.exports = {
   handleMessage,
@@ -679,5 +994,6 @@ module.exports = {
   addSuspectedScammer,
   quarantineMessage,
   celebratoryGifs,
-  suspiciousUserThreads
+  suspiciousUserThreads,
+  setupSimpleDailyReport
 };
