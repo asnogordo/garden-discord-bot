@@ -52,6 +52,13 @@ const userDisplayName = [
 ];
 
 const scamPatterns = [
+  /refer to the admin/i,
+  /\[OPEN-TICKET\]/i,
+  /(?:SUBMIT|CREATE|OPEN)[\s-]*(?:QUERY|TICKET)/i,
+  /to complain to team/i,
+  /dsc\.gg\//i,
+  /discord\.gg\/[a-zA-Z0-9]+\s*@/i,
+  /https?:\/\/.*\s*@[a-zA-Z0-9]+/i,
   /airdrop is live now/i,
   /collaborated with opensea/i,
   /claim as soon as possible/i,
