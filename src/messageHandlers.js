@@ -34,6 +34,9 @@ const ALLOWED_DOMAINS = [
 
 const suspiciousUserThreads = new Map();
 
+let dailyInterceptCount = 0;
+let lastReportTime = new Date().setHours(0, 0, 0, 0);
+
 //message locking to reduce race conditions
 const processingLock = new Set();
 
@@ -97,8 +100,7 @@ const scamPatterns = [
 ];
 
 const urlPattern = /https?:\/\/([^\/\s]+)([^\s]*)/gi;
-const plainDomainPattern = /(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|app|dev|info|co|gg))\b/gi;
-const internalUrl = /(?<!https?:\/\/)(?:www\.)?(discord\.(?:com|gg)|discord(?:app)?\.com)(\S*)/i;
+const plainDomainPattern = /(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|app|dev|info|co|gg|in|ca|us|uk|edu|gov|biz|me|tv|ai|so|tech|store|shop|app|cloud|de|fr|jp|ru|cn|au|nl|se|br|it|es|eu|nz|at|ch|pl|kr|za|crypto|eth|nft|dao|bitcoin|defi|chain|wallet))\b/gi;const internalUrl = /(?<!https?:\/\/)(?:www\.)?(discord\.(?:com|gg)|discord(?:app)?\.com)(\S*)/i;
 const howToStakeOrClaim = /.*(?:how|where).*(?:(?:stake|staking|earn|claim).*(?:btc|bitcoin|rewards?|seed)|(?:btc|bitcoin|rewards?).*(?:stake|staking|earn|claim)|(?:get|receive).*(?:staking|staked).*(btc|bitcoin|rewards?)).*/i;
 const howToGetSeed = /(?:how|where).*(?:get|buy|purchase|acquire|swap for).*seed\??/i;
 const wenVote = /.*(wh?en) .*(vote|voting).*/i;
@@ -856,9 +858,10 @@ async function handleUnauthorizedUrl(message) {
     // Delete the message with the unauthorized URL
     await message.delete();
     
+    dailyInterceptCount++; //keep track of daily intercepts
+
     // Simple notification message
-    const dmContent = `🌱 **Message Removed**\n\nYour message in #${message.channel.name} was removed because it contained an unauthorized URL.\n\n🌻 For security reasons, only links from garden.finance, x.com, and internal Discord server links are allowed.\n\n🍃 If you need to share other links, please contact a moderator.`;
-    
+    const dmContent = `🌱 Hey ${message.author.username}, your message in #${message.channel.name} was removed due to an unauthorized URL.\n\n Only links from garden.finance, x.com, and internal Discord links are allowed. If you need to share something else, raise a ticket and our mods will help you🌸.`;    
     // Send DM to user
     try {
       await message.author.send({ content: dmContent });
@@ -900,11 +903,50 @@ function hasProtectedRole(member) {
   return PROTECTED_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
 }
 
+function setupSimpleDailyReport(client) {
+  // Check every hour if we should send a report
+  setInterval(async () => {
+    const now = new Date();
+    const todayMidnight = new Date().setHours(0, 0, 0, 0);
+    
+    // If it's a new day and we haven't reported yet
+    if (todayMidnight > lastReportTime) {
+      try {
+        // Get the guild
+        const guild = client.guilds.cache.first();
+        if (!guild) return;
+        
+        // Get the report channel
+        const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
+        if (!reportChannel) return;
+        
+        // Format the date for yesterday (UTC)
+        const yesterday = new Date(lastReportTime);
+        const formattedDate = yesterday.toISOString().split('T')[0];
+        
+        // Send the report with the date
+        await reportChannel.send(
+          `📊 **URL Filter Report for ${formattedDate} (UTC)**\n\nUnauthorized URLs intercepted: **${dailyInterceptCount}**`
+        );
+        
+        // Reset for the new day
+        lastReportTime = todayMidnight;
+        dailyInterceptCount = 0;
+        
+        console.log(`Sent URL report for ${formattedDate}`);
+      } catch (error) {
+        console.error('Error sending daily report:', error);
+      }
+    }
+  }, 60 * 60 * 1000); // Check once per hour
+}
+
 module.exports = {
   handleMessage,
   handleScamMessage,
   addSuspectedScammer,
   quarantineMessage,
   celebratoryGifs,
-  suspiciousUserThreads
+  suspiciousUserThreads,
+  setupSimpleDailyReport
 };
