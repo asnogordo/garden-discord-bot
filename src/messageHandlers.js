@@ -119,7 +119,7 @@ const plainDomainPattern = /(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|
 const howToStakeOrClaim = /.*(?:how|where).*(?:(?:stake|staking|earn|claim).*(?:btc|bitcoin|rewards?|seed)|(?:btc|bitcoin|rewards?).*(?:stake|staking|earn|claim)|(?:get|receive).*(?:staking|staked).*(btc|bitcoin|rewards?)).*/i;
 const howToGetSeed = /(?:how|where).*(?:get|buy|purchase|acquire|swap for).*seed\??/i;
 const wenVote = /.*(wh?en) .*(vote|voting).*/i;
-const wenMoon = /.*(wh?en|where).*mo+n.*/i;
+const wenMoon = /.*(wh?en|where).*moon.*/i;
 const wenLambo = /.*(wh?en|where).*lambo.*/i;
 const wenNetwork = /.*wh?en\s+(optimism|op|binance|bnb|gnosis|avax|avalanche|sol|hyper|solana|monad|hyperliquid|hl).*/i;
 const meaningOfLife = /.*meaning of life.*/i;
@@ -140,7 +140,6 @@ const metricsAnalytics = /(?:how|where|what|which|can|is there).*(?:check|see|fi
 // GIF lists
 const wenMoonGifs = [
   'https://c.tenor.com/YZWhYF-xV4kAAAAd/when-moon-admin.gif',
-  'https://c.tenor.com/x-kqDAmw2NQAAAAC/parrot-party.gif',
   'https://c.tenor.com/R6Zf7aUegagAAAAd/lambo.gif',
   'https://media1.tenor.com/m/9idtwWwfCdAAAAAC/wen-when.gif',
   'https://media1.tenor.com/m/LZZfKVHwpoIAAAAC/waiting-penguin.gif',
