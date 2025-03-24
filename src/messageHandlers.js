@@ -901,14 +901,30 @@ async function handleUnauthorizedUrl(message) {
   try {
     const userId = message.author.id;
     const userName = message.author.tag;
+    const messageId = message.id;
     
-    // Delete the message with the unauthorized URL
-    await message.delete();
+    // First check if message still exists and is deletable
+    try {
+      // Try to fetch the message to ensure it exists
+      const fetchedMessage = await message.channel.messages.fetch(messageId);
+      if (fetchedMessage.deletable) {
+        await fetchedMessage.delete();
+        console.log(`Successfully deleted message ${messageId} with unauthorized URL`);
+      } else {
+        console.log(`Message ${messageId} is not deletable`);
+        return false;
+      }
+    } catch (fetchError) {
+      // Message likely doesn't exist anymore
+      console.log(`Message ${messageId} could not be fetched, likely already deleted: ${fetchError.message}`);
+      return false;
+    }
     
     dailyInterceptCount++; //keep track of daily intercepts
 
     // Simple notification message
     const dmContent = `🌱 Hey ${message.author.username}, your message in #${message.channel.name} was removed due to an unauthorized URL.\n\n Only links from garden.finance, x.com, and internal Discord links are allowed. If you need to share something else, raise a ticket and our mods will help you🌸.`;    
+    
     // Send DM to user
     try {
       await message.author.send({ content: dmContent });
@@ -917,17 +933,21 @@ async function handleUnauthorizedUrl(message) {
       console.log(`Failed to send DM to ${userName}: ${dmError.message}`);
       
       // Send a brief notice in the channel that will be deleted shortly
-      const tempMsg = await message.channel.send({
-        content: `<@${userId}> Your message with an unauthorized URL was removed. Please check server rules about acceptable links.`,
-        allowedMentions: { users: [userId] }
-      });
-      
-      // Delete the notice after a short delay
-      setTimeout(() => {
-        if (tempMsg.deletable) {
-          tempMsg.delete().catch(err => console.error('Failed to delete temp message:', err));
-        }
-      }, 8000); // Delete after 8 seconds
+      try {
+        const tempMsg = await message.channel.send({
+          content: `<@${userId}> Your message with an unauthorized URL was removed. Please check server rules about acceptable links.`,
+          allowedMentions: { users: [userId] }
+        });
+        
+        // Delete the notice after a short delay
+        setTimeout(() => {
+          if (tempMsg && tempMsg.deletable) {
+            tempMsg.delete().catch(err => console.error(`Failed to delete temp message ${tempMsg.id}: ${err.message}`));
+          }
+        }, 8000); // Delete after 8 seconds
+      } catch (tempMsgError) {
+        console.error(`Failed to send temporary notification: ${tempMsgError.message}`);
+      }
     }
     
     // Log the action
@@ -935,7 +955,7 @@ async function handleUnauthorizedUrl(message) {
     
     return true;
   } catch (error) {
-    console.error('Failed to handle unauthorized URL:', error);
+    console.error(`Failed to handle unauthorized URL (message ${message.id}): ${error.message}`);
     return false;
   }
 }

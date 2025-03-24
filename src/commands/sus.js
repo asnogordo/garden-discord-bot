@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, ChannelType, InteractionContextType, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder,MessageFlags,ChannelType, InteractionContextType, PermissionFlagsBits } = require('discord.js');
 const { BASE_ROLE_ID, SCAM_CHANNEL_ID } = require('../config');
 const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const { suspiciousUserThreads } = require('../messageHandlers');
@@ -66,7 +66,7 @@ module.exports = {
         if (interaction.channelId !== SCAM_CHANNEL_ID) {
             await interaction.reply({ 
                 content: 'This command can only be used in the designated channel.',
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -75,7 +75,7 @@ module.exports = {
         if (!isAboveBaseRole(interaction.member)) {
             await interaction.reply({ 
                 content: "You don't have permission to use this command.",
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -89,7 +89,7 @@ module.exports = {
          if (!canBeModerated(targetMember, interaction.member)) {
             await interaction.reply({ 
               content: 'This user cannot be reported due to role hierarchy or protected status.',
-              ephemeral: true 
+              flags: MessageFlags.Ephemeral
             });
             return;
           }
@@ -100,7 +100,7 @@ module.exports = {
         if (!hasOnlyBaseRole) {
             await interaction.reply({ 
                 content: 'This command can only be used on users with the base role.',
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -110,7 +110,7 @@ module.exports = {
             if (!reportChannel) {
                 await interaction.reply({ 
                     content: 'Error: Report channel not found.',
-                    ephemeral: true 
+                    flags: MessageFlags.Ephemeral
                 });
                 return;
             }
@@ -193,14 +193,14 @@ module.exports = {
             // Confirm to the reporter
             await interaction.reply({ 
                 content: 'Report submitted successfully. Moderators have been notified.',
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral
             });
 
         } catch (error) {
             console.error('Error in /sus command:', error);
             await interaction.reply({ 
                 content: 'An error occurred while processing your report.',
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral
             });
         }
     },
