@@ -90,7 +90,7 @@ client.on('interactionCreate', async interaction => {
         if (!isAboveBaseRole(moderator)) {
           await interaction.reply({ 
             content: "You don't have permission to use this command.", 
-            ephemeral: true 
+            flags: MessageFlags.Ephemeral
           });
           return;
         }
@@ -98,7 +98,7 @@ client.on('interactionCreate', async interaction => {
         if (!canBeModerated(targetMember, moderator)) {
           await interaction.reply({ 
             content: "This user cannot be banned due to role hierarchy or protected status.", 
-            ephemeral: true 
+            flags: MessageFlags.Ephemeral
           });
           return;
         }

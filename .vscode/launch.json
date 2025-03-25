@@ -16,7 +16,7 @@
             "env": {
                 "NODE_ENV": "development"
             },
-            "runtimeVersion": "20.14.0",
+            "runtimeVersion": "22.14.0",
         }
     ]
 }

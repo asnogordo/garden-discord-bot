@@ -4,7 +4,7 @@ const {
   GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID, EXCLUDED_CHANNELS,
   EXCLUDED_CHANNEL_PATTERNS,PROTECTED_ROLE_IDS
 } = require('./config');
-const { codeBlock, helloMsgReply, pickFromList, formatDuration,canBeModerated } = require('./utils');
+const { codeBlock, helloMsgReply, pickFromList, isLikelyQuestion,canBeModerated } = require('./utils');
 const { 
   ADDRESSES_EMBEDDED_MSG, 
   createWarningMessageEmbed
@@ -135,7 +135,7 @@ const claimingIssues = /\b(?:claim(?:ing)?)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?
 const transactionIssues = /\b(?:transaction|refund|sent|transfer|overpaid|payment)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone|to|is)\b).*\b(?:issue|problem|error|stuck|fail(?:ed|ing)?|missing|lost|pending)\b/i;
 const orderIssues = /\b(?:order)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:stuck|pending|fail(?:ed|ing)?|issue|problem|long time)\b/i;
 const gardenExplorer = /(?:\b(?:wh?en|where|how|can|does|do I|is|what|show|find|see|check|get|open|access|view|use|link to)(?:\s+\w+){0,5}\s+(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer|txs?|transaction\s*status|tx\s*status|transactions?))|(?:\b(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer)(?:\s+\w+){0,2}\s+(?:link|url|site|page|website))|(?:\bexplorer\b)|(?:\btx\s*link\b)/i;
-const metricsAnalytics = /(?:how|where|what|which|can|is there).*(?:check|see|find|view|get|analytics|metrics|stats|statistics|volume|data|chart|graph|dashboard|numbers|tvl|defi.?llama|dune)/i;
+const metricsAnalytics = /(?:how|where|what|which|can|is there).*(?:(?:check|see|find|view|get)\s+(?:garden|seed)?\s*(?:analytics|metrics|stats|statistics|volume|data|chart|graph|dashboard|numbers|tvl))|(?:defi.?llama|dune\s*analytics|explorer)/i;
 
 // GIF lists
 const wenMoonGifs = [
@@ -303,13 +303,12 @@ async function handleMessage(message) {
       await message.reply(`If you are having issues claiming $SEED, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
     } else if (orderIssues.test(message.content) || transactionIssues.test(message.content)) {
       await message.reply(`If you have questions about a transaction or need help with a refund, please provide your order ID and open a support ticket in <#${SUPPORT_CHANNEL_ID}>`);
-    } else if (metricsAnalytics.test(message.content)) {
+    } else if (metricsAnalytics.test(message.content) && isLikelyQuestion(message.content)) {
       await message.reply(
-        "You can check Garden Finance metrics on:\n\n" +
+        "You can check Garden metrics on:\n\n" +
         "🔍 **Garden Explorer**: <https://explorer.garden.finance/>\n" +
-        "📈 **Dune Analytics**: <https://dune.com/garden_finance/gardenfinance>\n" +
-        "📊 **DefiLlama**: <https://defillama.com/protocol/garden>"
-
+        "📊 **Dune**: <https://dune.com/garden_finance/gardenfinance>\n" +
+        "📈 **DefiLlama**: <https://defillama.com/protocol/garden>"
       );
     } 
   } catch (e) {
@@ -901,14 +900,31 @@ async function handleUnauthorizedUrl(message) {
   try {
     const userId = message.author.id;
     const userName = message.author.tag;
-    
-    // Delete the message with the unauthorized URL
-    await message.delete();
-    
-    dailyInterceptCount++; //keep track of daily intercepts
+    const messageId = message.id;
 
+    dailyInterceptCount++;
+    console.log(`Intercepting unauthorized URL (count: ${dailyInterceptCount}): ${message.content.substring(0, 100)}...`);
+    
+    // First check if message still exists and is deletable
+    try {
+      // Try to fetch the message to ensure it exists
+      const fetchedMessage = await message.channel.messages.fetch(messageId);
+      if (fetchedMessage.deletable) {
+        await fetchedMessage.delete();
+        console.log(`Successfully deleted message ${messageId} with unauthorized URL`);
+      } else {
+        console.log(`Message ${messageId} is not deletable`);
+        return false;
+      }
+    } catch (fetchError) {
+      // Message likely doesn't exist anymore
+      console.log(`Message ${messageId} could not be fetched, likely already deleted: ${fetchError.message}`);
+      return false;
+    }
+    
     // Simple notification message
-    const dmContent = `🌱 Hey ${message.author.username}, your message in #${message.channel.name} was removed due to an unauthorized URL.\n\n Only links from garden.finance, x.com, and internal Discord links are allowed. If you need to share something else, raise a ticket and our mods will help you🌸.`;    
+    const dmContent = `🌱 Hey ${message.author.username}, your message in #${message.channel.name} was removed due to an unauthorized URL.\n\n Only links from garden.finance, x.com, and internal Discord links are allowed. If you need to share something else, raise a ticket and our mods will help you 🌸.`;    
+    
     // Send DM to user
     try {
       await message.author.send({ content: dmContent });
@@ -917,17 +933,21 @@ async function handleUnauthorizedUrl(message) {
       console.log(`Failed to send DM to ${userName}: ${dmError.message}`);
       
       // Send a brief notice in the channel that will be deleted shortly
-      const tempMsg = await message.channel.send({
-        content: `<@${userId}> Your message with an unauthorized URL was removed. Please check server rules about acceptable links.`,
-        allowedMentions: { users: [userId] }
-      });
-      
-      // Delete the notice after a short delay
-      setTimeout(() => {
-        if (tempMsg.deletable) {
-          tempMsg.delete().catch(err => console.error('Failed to delete temp message:', err));
-        }
-      }, 8000); // Delete after 8 seconds
+      try {
+        const tempMsg = await message.channel.send({
+          content: `<@${userId}> Your message with an unauthorized URL was removed. Please check server rules about acceptable links.`,
+          allowedMentions: { users: [userId] }
+        });
+        
+        // Delete the notice after a short delay
+        setTimeout(() => {
+          if (tempMsg && tempMsg.deletable) {
+            tempMsg.delete().catch(err => console.error(`Failed to delete temp message ${tempMsg.id}: ${err.message}`));
+          }
+        }, 8000); // Delete after 8 seconds
+      } catch (tempMsgError) {
+        console.error(`Failed to send temporary notification: ${tempMsgError.message}`);
+      }
     }
     
     // Log the action
@@ -935,7 +955,7 @@ async function handleUnauthorizedUrl(message) {
     
     return true;
   } catch (error) {
-    console.error('Failed to handle unauthorized URL:', error);
+    console.error(`Failed to handle unauthorized URL (message ${message.id}): ${error.message}`);
     return false;
   }
 }
