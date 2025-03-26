@@ -41,6 +41,8 @@ const URL_SHORTENERS = [
 ];
 
 const suspiciousUserThreads = new Map();
+const processingMessages = new Map();
+const PROCESSING_TIMEOUT = 30000; // 30 seconds max processing time
 
 let dailyInterceptCount = 0;
 let lastReportTime = new Date().setHours(0, 0, 0, 0);
@@ -203,20 +205,35 @@ const recentMessages = new Map();
 
 async function handleMessage(message) {
   const messageId = message.id;
+  const now = Date.now();
+  
+  // Clean up stale locks (messages that started processing > 30 seconds ago)
+  for (const [id, timestamp] of processingMessages.entries()) {
+    if (now - timestamp > PROCESSING_TIMEOUT) {
+      console.log(`Removing stale lock for message ${id}`);
+      processingMessages.delete(id);
+    }
+  }
   
   // Skip if message is already being processed
-  if (processingLock.has(messageId)) {
+  if (processingMessages.has(messageId)) {
     return;
   }
 
+  // Add to processing
+  processingMessages.set(messageId, now);
+
   try {
-
-    processingLock.add(messageId);
-
+    // Process the message asynchronously
     const { author, content, member, channel, guild } = message;
 
-    // Check if channel should be excluded from message handling
-    if (isChannelExcluded(channel)) {
+    // Run checks in parallel when possible
+    const [isExcluded, isProtected] = await Promise.all([
+      isChannelExcluded(channel),
+      member ? hasProtectedRole(member) : Promise.resolve(false)
+    ]);
+
+    if (isExcluded) {
       return;
     }
     
@@ -224,28 +241,40 @@ async function handleMessage(message) {
       console.log('Do not reply to bots', message.author.tag);
       return;
     }
+
+    // Improve message type checking - only do this check once
     if (message.type !== MessageType.Default && message.type !== MessageType.Reply) {
-      console.log('Can only interact with default messages and replies', message.type);
+      console.log('Not processing message type:', message.type);
       return;
     }
-    console.log(message.type);
-    if (message.type !== MessageType.Default) {
-      console.log('Can only interact with default messages', message.type);
-      return;
-    }
+
     if (channel.type === ChannelType.DM) {
       message.reply(
         codeBlock(cowsay.say({ text: "I am a bot and can't reply, beep bop" })),
       );
       return;
     }
-    
-    const isProtected = hasProtectedRole(member);
-    await handleScamMessage(message);
 
-    if (!message.deleted && hasUnauthorizedUrl(message, guild) && !isProtected) {
-      await handleUnauthorizedUrl(message);
-      return;
+    // Process scam messages first - this is most important
+    if (!isProtected) {
+      await handleScamMessage(message);
+      
+      // Check if message was deleted by scam handler
+      try {
+        await message.channel.messages.fetch(message.id);
+      } catch (e) {
+        // Message was deleted, stop processing
+        return;
+      }
+    }
+
+    // Check for unauthorized URLs after making sure the message still exists
+    if (!isProtected && !message.deleted) {
+      const hasUnauthorizedUrls = hasUnauthorizedUrl(message, guild);
+      if (hasUnauthorizedUrls) {
+        await handleUnauthorizedUrl(message);
+        return;
+      }
     }
     
     if (wenMoon.test(message.content)) {
@@ -315,7 +344,7 @@ async function handleMessage(message) {
     console.error('Something failed handling a message', e);
   } finally {
     // Always remove from processing lock when done
-    processingLock.delete(messageId);
+    processingMessages.delete(messageId);
   }
 }
 
@@ -336,94 +365,100 @@ function isSuspectedScammer(userId) {
 }
 
 async function handleScamMessage(message) {
-  const { author, content, channel, member, guild } = message;
-  const key = `${author.id}:${content}`;
+  try {
+    const { author, content, channel, member, guild } = message;
+    const key = `${author.id}:${content}`;
 
-  // Skip for users with protected roles
-  if (hasProtectedRole(member)) {
-    return;
-  }
-
-  // Get the bot's member object properly
-  const botMember = message.guild.members.cache.get(message.client.user.id);
-    
-  // Do scam pattern checks before the moderation check
-  const isScamContent = scamPatterns.some(pattern => pattern.test(message.content));
-  const hasExternalUrl = !isAllowedUrl(content, guild);
-  const hasDeceptiveUrlContent = hasDeceptiveUrl(message.content);
-  const hasShortenerUrl = containsUrlShortener(message.content);
-
-  if (!canBeModerated(member, botMember)) {
-    let scamDetected = false;
-    let scamReasons = [];
-    
-    if (isScamContent) {
-      scamDetected = true;
-      scamReasons.push("matched scam pattern");
+    // Skip for users with protected roles
+    if (hasProtectedRole(member)) {
+      return false; // Return false to indicate no action taken
     }
-    
-    if (hasExternalUrl||hasShortenerUrl) {
-      scamDetected = true;
-      scamReasons.push("contains external URL");
-    }
-    
-    if (hasDeceptiveUrlContent) {
-      scamDetected = true;
-      scamReasons.push("contains deceptive URL");
-    }
-    
-    console.log(`Skipping scam check for protected/higher role user ${author.tag}${scamDetected ? ` [WOULD TRIGGER: ${scamReasons.join(", ")}]` : ""}`);
-    return;
-  }
 
-  // Check if all mentioned users have only the base role
-  const mentionedUsersHaveOnlyBaseRole = message.mentions.users.size > 0 
-    ? await Promise.all(
-        message.mentions.users.map(async (user) => {
-          const member = await message.guild.members.fetch(user);
-          return member.roles.cache.size === 2 && member.roles.cache.has(BASE_ROLE_ID);
-        })
-      ).then(results => results.every(Boolean))
-    : false;
-  const isScamUser = userDisplayName.some(pattern => pattern.test(member.displayName));
-  const hasMentions = (message.mentions.users.size > 0 && mentionedUsersHaveOnlyBaseRole) || message.mentions.everyone;
-  const hasAnyMentions = (message.mentions.users.size > 0) || message.mentions.everyone;
-
-  const userRoles = message.member.roles.cache;
-  // Check if the user has only the base role
-  const hasOnlyBaseRole = userRoles.size === 2 && userRoles.has(BASE_ROLE_ID);
+    // Get the bot's member object properly
+    const botMember = message.guild.members.cache.get(message.client.user.id);
       
-  if (!recentMessages.has(key)) {
-    recentMessages.set(key, new Set());
-  }
-
-  const channels = recentMessages.get(key);
-  channels.add(channel.id);
-
-  // If the same message appears in more than 2 channels, quarantine it
-  if (channels.size > 2 && hasOnlyBaseRole) {
-    await quarantineMessage(message, channels);
-    return;
-  }
-  setTimeout(() => {
-    channels.delete(channel.id);
-    if (channels.size === 0) {
-      recentMessages.delete(key);
+    // Check if we can moderate this user
+    if (!canBeModerated(member, botMember)) {
+      return false; // Return false to indicate no action taken
     }
-  }, 3600000); // 1 hour in milliseconds
 
-  const isTargetedScam = isTargetedScamMessage(message, hasOnlyBaseRole, hasMentions, hasExternalUrl);
+    // Run all the pattern checks concurrently
+    const [isScamContent, hasExternalUrl, hasDeceptiveUrlContent, hasShortenerUrl] = await Promise.all([
+      Promise.resolve(scamPatterns.some(pattern => pattern.test(message.content))),
+      Promise.resolve(!isAllowedUrl(content, guild)),
+      Promise.resolve(hasDeceptiveUrl(message.content)),
+      Promise.resolve(containsUrlShortener(message.content))
+    ]);
 
-  if (((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl) && hasOnlyBaseRole) || isTargetedScam || isScamUser) {
-    await quarantineMessage(message, new Set([channel.id]));
-  }
+    // Fetch mentions info
+    const mentionedUsersHaveOnlyBaseRole = message.mentions.users.size > 0 
+      ? await Promise.all(
+          message.mentions.users.map(async (user) => {
+            try {
+              const member = await message.guild.members.fetch(user);
+              return member.roles.cache.size === 2 && member.roles.cache.has(BASE_ROLE_ID);
+            } catch (e) {
+              console.error(`Failed to fetch member for ${user.id}:`, e);
+              return false;
+            }
+          })
+        ).then(results => results.every(Boolean))
+      : false;
 
-  // Handle repeated mentions and spam occurrences
-  if (isSuspectedScammer(author.id)) {
-    if (hasAnyMentions) {
-      await handleRepeatedMentions(message);
+    const isScamUser = userDisplayName.some(pattern => pattern.test(member.displayName));
+    const hasMentions = (message.mentions.users.size > 0 && mentionedUsersHaveOnlyBaseRole) || message.mentions.everyone;
+    const hasAnyMentions = (message.mentions.users.size > 0) || message.mentions.everyone;
+
+    const userRoles = message.member.roles.cache;
+    // Check if the user has only the base role
+    const hasOnlyBaseRole = userRoles.size === 2 && userRoles.has(BASE_ROLE_ID);
+        
+    // Track multi-channel spam
+    if (!recentMessages.has(key)) {
+      recentMessages.set(key, new Set());
     }
-    await handleSpamOccurrences(message);
+
+    const channels = recentMessages.get(key);
+    channels.add(channel.id);
+
+    // If the same message appears in more than 2 channels, quarantine it
+    if (channels.size > 2 && hasOnlyBaseRole) {
+      await quarantineMessage(message, channels);
+      return true; // Return true to indicate action taken
+    }
+    
+    // Set a timeout to clean up this entry from recentMessages
+    setTimeout(() => {
+      const channelSet = recentMessages.get(key);
+      if (channelSet) {
+        channelSet.delete(channel.id);
+        if (channelSet.size === 0) {
+          recentMessages.delete(key);
+        }
+      }
+    }, 3600000); // 1 hour in milliseconds
+
+    const isTargetedScam = isTargetedScamMessage(message, hasOnlyBaseRole, hasMentions, hasExternalUrl);
+
+    if (((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl) && hasOnlyBaseRole) || isTargetedScam || isScamUser) {
+      await quarantineMessage(message, new Set([channel.id]));
+      return true; // Return true to indicate action taken
+    }
+
+    // Handle repeated mentions and spam occurrences
+    if (isSuspectedScammer(author.id)) {
+      let actionTaken = false;
+      if (hasAnyMentions) {
+        actionTaken = await handleRepeatedMentions(message);
+      }
+      const spamActionTaken = await handleSpamOccurrences(message);
+      return actionTaken || spamActionTaken;
+    }
+    
+    return false; // No action taken
+  } catch (e) {
+    console.error('Error in handleScamMessage:', e);
+    return false;
   }
 }
 
@@ -434,31 +469,64 @@ async function quarantineMessage(message, channelIds) {
     
     // Delete all instances of the message
     const deletionPromises = Array.from(channelIds).map(async (channelId) => {
-      const channel = await guild.channels.fetch(channelId);
-      const messages = await channel.messages.fetch({ limit: 100 });
-      const userMessages = messages.filter(m => m.author.id === author.id && m.content === content);
-      return Promise.all(userMessages.map(async m => 
-      {
-          if (m.deletable) {
-            await m.delete();
+      try {
+        const channel = await guild.channels.fetch(channelId);
+        if (!channel) {
+          console.log(`Channel ${channelId} not found, skipping`);
+          return;
+        }
+
+        try {
+          const messages = await channel.messages.fetch({ limit: 100 });
+          const userMessages = messages.filter(m => 
+            m.author.id === author.id && m.content === content
+          );
+          
+          for (const m of userMessages.values()) {
+            try {
+              if (m.deletable) {
+                await m.delete();
+                console.log(`Deleted message ${m.id} from ${author.tag}`);
+              }
+            } catch (deleteError) {
+              console.error(`Failed to delete message ${m.id}:`, deleteError.message);
+            }
           }
-      }));
+        } catch (messagesError) {
+          console.error(`Failed to fetch messages in channel ${channelId}:`, messagesError.message);
+        }
+      } catch (channelError) {
+        console.error(`Failed to fetch channel ${channelId}:`, channelError.message);
+      }
     });
     
-    await Promise.all(deletionPromises);
+    // Wait for all deletion attempts to complete
+    await Promise.allSettled(deletionPromises);
     
     console.log(`Quarantined message from ${author.tag} in ${channelIds.size} channel(s).`);
 
-    const joinDate = member.joinedAt.toDateString();
-    const displayName = member.displayName;
-    const username = author.username;
-    const userId = author.id;
-    const accountCreatedAt = author.createdAt.toDateString();
-    
-    const roles = member.roles.cache
-      .filter(role => role.name !== '@everyone')
-      .map(role => role.name)
-      .join(', ');
+    // Gather user info for the report
+    let joinDate = "Unknown";
+    let displayName = author.username;
+    let username = author.username;
+    let userId = author.id;
+    let accountCreatedAt = author.createdAt ? author.createdAt.toDateString() : "Unknown";
+    let roles = "None";
+
+    try {
+      joinDate = member.joinedAt ? member.joinedAt.toDateString() : "Unknown";
+      displayName = member.displayName || "Unknown";
+      
+      const memberRoles = member.roles?.cache;
+      if (memberRoles && memberRoles.size > 0) {
+        roles = memberRoles
+          .filter(role => role.name !== '@everyone')
+          .map(role => role.name)
+          .join(', ') || "None";
+      }
+    } catch (memberError) {
+      console.error(`Error getting member details: ${memberError.message}`);
+    }
 
     const originalMessage = content.trim();
 
@@ -468,14 +536,22 @@ async function quarantineMessage(message, channelIds) {
       scammer.spamOccurrences
     );
 
-    const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
-    if (reportChannel) {
-      await sendThreadedReport(reportChannel, author, warningMessageEmbed);
-    } else {
-      console.error('Report channel not found');
+    // Send the report to the scam channel
+    try {
+      const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
+      if (reportChannel) {
+        await sendThreadedReport(reportChannel, author, warningMessageEmbed);
+      } else {
+        console.error('Scam report channel not found (ID:', SCAM_CHANNEL_ID, ')');
+      }
+    } catch (reportError) {
+      console.error('Failed to send scam report:', reportError.message);
     }
+
+    return true; // Indicate that action was taken
   } catch (error) {
-    console.error('Failed to quarantine message or send warning:', error);
+    console.error('Failed to quarantine message:', error);
+    return false; // Indicate failure
   }
 }
 
@@ -805,7 +881,7 @@ function hasUnauthorizedUrl(message, guild) {
 }
 
 function containsUrlShortener(content) {
-  // Regular expression to match URLs
+  // First check for URLs with protocol
   const urlRegex = /https?:\/\/([^\/\s]+)(\/[^\s]*)?/gi;
   let match;
   
@@ -819,12 +895,24 @@ function containsUrlShortener(content) {
     }
   }
   
-  // Also check for shortened links without http/https
+  // For URL shorteners without protocol, be more careful
   for (const shortener of URL_SHORTENERS) {
-    const shortenerRegex = new RegExp(`\\b${shortener}\\b`, 'i');
+    // This pattern requires word boundaries on both sides or the beginning of a line
+    // and looks for domain-like patterns (e.g., bit.ly/xyz), not just the text
+    const shortenerRegex = new RegExp(`(?:^|\\s)${shortener}(?:/[^\\s]+)?(?:\\s|$)`, 'i');
     if (shortenerRegex.test(content)) {
-      console.log(`URL shortener detected without protocol: ${shortener}`);
-      return true;
+      // Double-check with a more restrictive pattern for shorteners that could be common words
+      if (['to', 'is', 'us', 'id'].includes(shortener.split('.')[0])) {
+        // For these, require the domain pattern to be more domain-like
+        const stricterRegex = new RegExp(`(?:^|\\s)${shortener}/[^\\s]+(?:\\s|$)`, 'i');
+        if (stricterRegex.test(content)) {
+          console.log(`URL shortener detected without protocol: ${shortener}`);
+          return true;
+        }
+      } else {
+        console.log(`URL shortener detected without protocol: ${shortener}`);
+        return true;
+      }
     }
   }
   
