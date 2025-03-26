@@ -255,8 +255,18 @@ async function handleMessage(message) {
       return;
     }
 
-    // Process scam messages first - this is most important
+    // Process messages for non-protected users
     if (!isProtected) {
+      // First check for unauthorized URLs
+      const hasUnauthorizedUrls = hasUnauthorizedUrl(message, guild);
+      
+      // If there are unauthorized URLs, handle them
+      if (hasUnauthorizedUrls) {
+        await handleUnauthorizedUrl(message);
+        return;
+      }
+      
+      // Then proceed with scam detection, which can assume URLs are already validated
       await handleScamMessage(message);
       
       // Check if message was deleted by scam handler
@@ -264,15 +274,6 @@ async function handleMessage(message) {
         await message.channel.messages.fetch(message.id);
       } catch (e) {
         // Message was deleted, stop processing
-        return;
-      }
-    }
-
-    // Check for unauthorized URLs after making sure the message still exists
-    if (!isProtected && !message.deleted) {
-      const hasUnauthorizedUrls = hasUnauthorizedUrl(message, guild);
-      if (hasUnauthorizedUrls) {
-        await handleUnauthorizedUrl(message);
         return;
       }
     }
@@ -432,7 +433,9 @@ async function handleScamMessage(message) {
     console.log(`DSC.GG CHECK: ${hasDscGg ? 'FOUND' : 'Not found'}`);
     
     // Check for discord.gg links
-    const hasDiscordInvite = /discord\.gg\//i.test(content) || /discord\.com\/invite\//i.test(content);
+    const hasDiscordInvite = /discord\.gg[\\/]/i.test(content) || 
+    /discord\.com\/invite[\\/]/i.test(content) ||
+    /discord[\.\s]*(?:gg|com[\.\s]*[\\/][\.\s]*invite)[\\\/:]/i.test(content);
     console.log(`DISCORD INVITE CHECK: ${hasDiscordInvite ? 'FOUND' : 'Not found'}`);
 
     // Check user roles
