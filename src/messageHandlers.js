@@ -144,10 +144,8 @@ const wenMoonGifs = [
   'https://c.tenor.com/YZWhYF-xV4kAAAAd/when-moon-admin.gif',
   'https://c.tenor.com/x-kqDAmw2NQAAAAC/parrot-party.gif',
   'https://c.tenor.com/R6Zf7aUegagAAAAd/lambo.gif',
-  'https://media1.tenor.com/m/9idtwWwfCdAAAAAC/wen-when.gif',
-  'https://media1.tenor.com/m/LZZfKVHwpoIAAAAC/waiting-penguin.gif',
-  'https://media1.tenor.com/m/1vXRFJxqIVgAAAAC/waiting-waiting-patiently.gif',
-  'https://media1.tenor.com/m/XIr-1aBPoCEAAAAC/walk-hard-the-dewey-cox-story.gif'
+  'https://c.tenor.com/1vXRFJxqIVgAAAAC/tenor.gif',
+  'https://c.tenor.com/XIr-1aBPoCEAAAAC/tenor.gif'
 ];
 
 const wenLamboGifs = [
@@ -159,22 +157,22 @@ const meaningOfLifeGifs = [
   'https://pa1.narvii.com/6331/0e0ef4cfaf24742e0ca39e79a4df2a1aff6f928c_hq.gif',
   'https://i.giphy.com/media/dYgDRfc61SGtO/giphy.webp',
   'https://i.giphy.com/media/OY9XK7PbFqkNO/giphy.webp',
-  'https://media1.tenor.com/m/Qc-OTTAsDnAAAAAd/best-field-day-ever.gif'
+  'https://c.tenor.com/Qc-OTTAsDnAAAAAd/tenor.gif'
 ];
 
 const workingOnItGifs = [
-  'Soon™\nhttps://media1.tenor.com/m/RXGEDEM_odoAAAAC/burstofenergy.gif',
-  'Soon™\nhttps://media1.tenor.com/m/GS--K_H775kAAAAC/gardener-expert.gif',
-  'Soon™\nhttps://media1.tenor.com/m/OiuNG8MQKkYAAAAC/nature-flower.gif',
-  'Soon™\nhttps://media1.tenor.com/m/W42sxw9yTZkAAAAC/ponste9.gif',
-  'Soon™\nhttps://media1.tenor.com/m/1ZPySWYcQkAAAAAC/cem-gif.gif',
-  'Soon™\nhttps://media1.tenor.com/m/vo2C5ig9SIMAAAAd/erkenci-kus-sanem.gif',
-  'Soon™\nhttps://media1.tenor.com/m/CmogjUfSyckAAAAd/aum-animation-andy-pirki.gif'
+  'Soon™\nhttps://c.tenor.com/RXGEDEM_odoAAAAC/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/GS--K_H775kAAAAC/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/OiuNG8MQKkYAAAAC/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/W42sxw9yTZkAAAAC/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/1ZPySWYcQkAAAAAC/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/vo2C5ig9SIMAAAAd/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/CmogjUfSyckAAAAd/tenor.gif'
 ];
 
 const wenDudeGifs = [
-  'https://media1.tenor.com/m/FC_My5JT638AAAAC/the-big-lebowski-the-dude.gif',
-  'https://media1.tenor.com/m/GscrdOO29OUAAAAd/the-dude-big-lebowski.gif',
+  'https://c.tenor.com/FC_My5JT638AAAAC/tenor.gif',
+  'https://c.tenor.com/GscrdOO29OUAAAAd/tenor.gif',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWZnaWkyOTQ2aDE3ZWgzejB1bnFhM3JrZGFxdWZtNXpwbmljbDljaCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/lnDvZtsnWfnnX4T0KA/giphy-downsized-large.gif',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGl6NTdwemdzNDM0eDVha3I1eXFraWU2ZXVreXQ1MmJlY2Q3MHc0ayZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/J6JDizWgG3bX704JEU/giphy-downsized-large.gif',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWdpZ3U3b3pzb3RmOHB4cHpkZ2s0NDczYXdzbmZ5NGpyMmt1bjRjaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7bueYrEU0GcwzTKo/giphy.gif',
@@ -182,7 +180,7 @@ const wenDudeGifs = [
 ];
 
 const celebratoryGifs = [
-  'https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif',
+  'https://i.giphy.com/l0MYt5jPR6QX5pnqM.webp',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3hmNmJhZnM1ZjB2dHB0cGgyczBwdjk0bmNoZzk5M3RsdXlvbDY1aiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/x3ijPhltY1z7EGdxGT/giphy.gif',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExNmE0dGk4am9kdG04MWV6bjV1NDJjeHJ4ZGNoaHlvYjRmeHExMzlycyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/MWDLf1EIUsoNy/giphy.gif',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExeGFsODljZ3Fsbmxnd2JmOTk0bnFiNTk1bHRxc3duNGdjZTM1cG5lZiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/GXMuvJXWVqGiY/giphy.gif',
