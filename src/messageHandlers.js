@@ -113,7 +113,7 @@ const scamPatterns = [
   /discord\.com\/invite\/.*(?:submit|query|support|ticket)/i,
   /create.*ticket.*(?:https|discord\.gg)/i,
   /(?:👆|👇|👉).*https/i,
-  /https.*(?:👆|👇|👉)/i
+  /https.*(?:👆|👇|👉)/i,
 ];
 
 const urlPattern = /https?:\/\/([^\/\s]+)([^\s]*)/gi;
@@ -368,10 +368,15 @@ async function handleScamMessage(message) {
   try {
     const { author, content, channel, member, guild } = message;
     const key = `${author.id}:${content}`;
-
+    
+    console.log(`\n==== SCAM CHECK: ${author.tag} ====`);
+    console.log(`Message: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`);
+    console.log(`Channel: ${channel.name} (${channel.id})`);
+    
     // Skip for users with protected roles
     if (hasProtectedRole(member)) {
-      return false; // Return false to indicate no action taken
+      console.log(`SKIPPED: User has protected role`);
+      return false;
     }
 
     // Get the bot's member object properly
@@ -379,39 +384,104 @@ async function handleScamMessage(message) {
       
     // Check if we can moderate this user
     if (!canBeModerated(member, botMember)) {
-      return false; // Return false to indicate no action taken
+      console.log(`SKIPPED: User cannot be moderated (higher role or missing permissions)`);
+      return false;
     }
 
-    // Run all the pattern checks concurrently
-    const [isScamContent, hasExternalUrl, hasDeceptiveUrlContent, hasShortenerUrl] = await Promise.all([
-      Promise.resolve(scamPatterns.some(pattern => pattern.test(message.content))),
-      Promise.resolve(!isAllowedUrl(content, guild)),
-      Promise.resolve(hasDeceptiveUrl(message.content)),
-      Promise.resolve(containsUrlShortener(message.content))
-    ]);
+    // Run individual pattern checks with detailed logging
+    console.log(`\n--- Running scam pattern checks ---`);
+    
+    // Check against scam patterns
+    const matchedPatterns = [];
+    for (let i = 0; i < scamPatterns.length; i++) {
+      if (scamPatterns[i].test(content)) {
+        matchedPatterns.push(i);
+      }
+    }
+    
+    const isScamContent = matchedPatterns.length > 0;
+    console.log(`SCAM CONTENT CHECK: ${isScamContent ? 'MATCHED' : 'No match'}`);
+    if (isScamContent) {
+      console.log(`Matched patterns: ${matchedPatterns.join(', ')}`);
+      matchedPatterns.forEach(i => {
+        console.log(`Pattern ${i}: ${scamPatterns[i]}`);
+      });
+    }
+    
+    // Check URL-related patterns
+    const hasExternalUrl = !isAllowedUrl(content, guild);
+    console.log(`EXTERNAL URL CHECK: ${hasExternalUrl ? 'FOUND' : 'Not found'}`);
+    if (hasExternalUrl) {
+      // Extract and log URLs
+      const urlMatches = content.match(/https?:\/\/([^\/\s]+)([^\s]*)/gi) || [];
+      urlMatches.forEach(url => console.log(`Found URL: ${url}`));
+      
+      // Also check plain domain matches
+      const plainMatches = content.match(/(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|app|dev|info|co|gg))\b/gi) || [];
+      plainMatches.forEach(domain => console.log(`Found domain: ${domain}`));
+    }
+    
+    const hasDeceptiveUrlContent = hasDeceptiveUrl(content);
+    console.log(`DECEPTIVE URL CHECK: ${hasDeceptiveUrlContent ? 'DETECTED' : 'Not detected'}`);
+    
+    const hasShortenerUrl = containsUrlShortener(content);
+    console.log(`URL SHORTENER CHECK: ${hasShortenerUrl ? 'FOUND' : 'Not found'}`);
+    
+    // Check for dsc.gg links explicitly
+    const hasDscGg = /dsc\.gg\//i.test(content);
+    console.log(`DSC.GG CHECK: ${hasDscGg ? 'FOUND' : 'Not found'}`);
+    
+    // Check for discord.gg links
+    const hasDiscordInvite = /discord\.gg\//i.test(content) || /discord\.com\/invite\//i.test(content);
+    console.log(`DISCORD INVITE CHECK: ${hasDiscordInvite ? 'FOUND' : 'Not found'}`);
 
+    // Check user roles
+    const userRoles = message.member.roles.cache;
+    const hasOnlyBaseRole = userRoles.size === 2 && userRoles.has(BASE_ROLE_ID);
+    console.log(`\n--- User role check ---`);
+    console.log(`User has ${userRoles.size} roles`);
+    console.log(`Has only base role: ${hasOnlyBaseRole ? 'YES' : 'NO'}`);
+    console.log(`Roles: ${Array.from(userRoles.values()).map(r => r.name).join(', ')}`);
+    
+    // Check mentions
+    console.log(`\n--- Mention check ---`);
+    console.log(`Mentions count: ${message.mentions.users.size}`);
+    console.log(`Has @everyone: ${message.mentions.everyone ? 'YES' : 'NO'}`);
+    
     // Fetch mentions info
-    const mentionedUsersHaveOnlyBaseRole = message.mentions.users.size > 0 
-      ? await Promise.all(
-          message.mentions.users.map(async (user) => {
-            try {
-              const member = await message.guild.members.fetch(user);
-              return member.roles.cache.size === 2 && member.roles.cache.has(BASE_ROLE_ID);
-            } catch (e) {
-              console.error(`Failed to fetch member for ${user.id}:`, e);
-              return false;
-            }
-          })
-        ).then(results => results.every(Boolean))
-      : false;
+    let mentionedUsersHaveOnlyBaseRole = false;
+    if (message.mentions.users.size > 0) {
+      console.log(`Checking roles of mentioned users...`);
+      
+      const mentionRoleChecks = await Promise.all(
+        message.mentions.users.map(async (user) => {
+          try {
+            const mentionedMember = await message.guild.members.fetch(user);
+            const hasOnlyBase = mentionedMember.roles.cache.size === 2 && 
+                               mentionedMember.roles.cache.has(BASE_ROLE_ID);
+            console.log(`Mentioned user ${user.tag}: has only base role: ${hasOnlyBase ? 'YES' : 'NO'}`);
+            return hasOnlyBase;
+          } catch (e) {
+            console.error(`Failed to fetch member for ${user.id}:`, e.message);
+            return false;
+          }
+        })
+      );
+      
+      mentionedUsersHaveOnlyBaseRole = mentionRoleChecks.every(Boolean);
+      console.log(`All mentioned users have only base role: ${mentionedUsersHaveOnlyBaseRole ? 'YES' : 'NO'}`);
+    }
 
-    const isScamUser = userDisplayName.some(pattern => pattern.test(member.displayName));
     const hasMentions = (message.mentions.users.size > 0 && mentionedUsersHaveOnlyBaseRole) || message.mentions.everyone;
     const hasAnyMentions = (message.mentions.users.size > 0) || message.mentions.everyone;
+    console.log(`Has qualifying mentions: ${hasMentions ? 'YES' : 'NO'}`);
+    console.log(`Has any mentions: ${hasAnyMentions ? 'YES' : 'NO'}`);
 
-    const userRoles = message.member.roles.cache;
-    // Check if the user has only the base role
-    const hasOnlyBaseRole = userRoles.size === 2 && userRoles.has(BASE_ROLE_ID);
+    // Check username patterns
+    const isScamUser = userDisplayName.some(pattern => pattern.test(member.displayName));
+    console.log(`\n--- Username check ---`);
+    console.log(`Username matches scam pattern: ${isScamUser ? 'YES' : 'NO'}`);
+    console.log(`Display name: ${member.displayName}`);
         
     // Track multi-channel spam
     if (!recentMessages.has(key)) {
@@ -420,11 +490,14 @@ async function handleScamMessage(message) {
 
     const channels = recentMessages.get(key);
     channels.add(channel.id);
+    console.log(`\n--- Multi-channel check ---`);
+    console.log(`Message seen in ${channels.size} channels`);
 
     // If the same message appears in more than 2 channels, quarantine it
     if (channels.size > 2 && hasOnlyBaseRole) {
+      console.log(`QUARANTINE TRIGGERED: Message in ${channels.size} channels`);
       await quarantineMessage(message, channels);
-      return true; // Return true to indicate action taken
+      return true;
     }
     
     // Set a timeout to clean up this entry from recentMessages
@@ -438,26 +511,55 @@ async function handleScamMessage(message) {
       }
     }, 3600000); // 1 hour in milliseconds
 
+    // Check for targeted scam patterns
     const isTargetedScam = isTargetedScamMessage(message, hasOnlyBaseRole, hasMentions, hasExternalUrl);
+    console.log(`\n--- Targeted scam check ---`);
+    console.log(`Is targeted scam: ${isTargetedScam ? 'YES' : 'NO'}`);
 
-    if (((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl) && hasOnlyBaseRole) || isTargetedScam || isScamUser) {
+    // Final decision logic
+    console.log(`\n--- FINAL DECISION ---`);
+    
+    // Modified condition to always catch dsc.gg and discord invites
+    const shouldQuarantine = (
+      ((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl) && hasOnlyBaseRole) ||
+      isTargetedScam || 
+      isScamUser ||
+      (hasDscGg && !hasProtectedRole(member)) ||  // Always catch dsc.gg links unless protected
+      (hasDiscordInvite && !hasProtectedRole(member) && !content.includes('garden.finance')) // Always catch discord invites unless protected or official
+    );
+    
+    console.log(`Should quarantine: ${shouldQuarantine ? 'YES' : 'NO'}`);
+    
+    if (shouldQuarantine) {
+      console.log(`QUARANTINE TRIGGERED: Scam detected`);
       await quarantineMessage(message, new Set([channel.id]));
-      return true; // Return true to indicate action taken
+      return true;
     }
 
     // Handle repeated mentions and spam occurrences
-    if (isSuspectedScammer(author.id)) {
+    console.log(`\n--- SUSPECTED SCAMMER CHECK ---`);
+    const isSuspected = isSuspectedScammer(author.id);
+    console.log(`Is suspected scammer: ${isSuspected ? 'YES' : 'NO'}`);
+    
+    if (isSuspected) {
+      console.log(`Processing actions for suspected scammer...`);
       let actionTaken = false;
       if (hasAnyMentions) {
         actionTaken = await handleRepeatedMentions(message);
+        console.log(`Handled repeated mentions: action taken: ${actionTaken ? 'YES' : 'NO'}`);
       }
       const spamActionTaken = await handleSpamOccurrences(message);
+      console.log(`Handled spam occurrences: action taken: ${spamActionTaken ? 'YES' : 'NO'}`);
       return actionTaken || spamActionTaken;
     }
     
+    console.log(`NO ACTION TAKEN: Message passed all checks`);
+    console.log(`==== END SCAM CHECK ====\n`);
     return false; // No action taken
   } catch (e) {
     console.error('Error in handleScamMessage:', e);
+    console.log(`ERROR in handleScamMessage: ${e.message}`);
+    console.log(`==== END SCAM CHECK (ERROR) ====\n`);
     return false;
   }
 }
