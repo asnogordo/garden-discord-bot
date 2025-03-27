@@ -37,7 +37,9 @@ const URL_SHORTENERS = [
   'tr.im', 'dsc.gg', 'adf.ly', 'tiny.cc', 'shorten.me', 'clck.ru', 'cutt.ly',
   'rebrand.ly', 'short.io', 'bl.ink', 'snip.ly', 'lnk.to', 'hive.am',
   'shor.by', 'bc.vc', 'v.gd', 'qps.ru', 'spoo.me', 'x.co', 'yourls.org',
-  'shorturl.at', 'tny.im', 'u.to', 'url.ie', 'shrturi.com', 's.id'
+  'shorturl.at', 'tny.im', 'u.to', 'url.ie', 'shrturi.com', 's.id',
+  'tr.ee', 'kutt.it', 'dub.sh', 'soo.gd', 'qr.ae', 'tothe.link',
+  'san.aq', 'KurzeLinks.de', 'lstu.fr', 'bitly.pk'
 ];
 
 const suspiciousUserThreads = new Map();
@@ -406,6 +408,15 @@ async function handleScamMessage(message) {
         console.log(`Pattern ${i}: ${scamPatterns[i]}`);
       });
     }
+
+    const urlObfuscation = detectUrlObfuscation(content);
+    console.log(`URL OBFUSCATION CHECK: ${urlObfuscation.isObfuscated ? 'DETECTED' : 'Not detected'}`);
+    if (urlObfuscation.isObfuscated) {
+      console.log(`URL encoding: ${urlObfuscation.hasUrlEncoding}`);
+      console.log(`Line breaks in URL: ${urlObfuscation.hasLineBreaksInUrl}`);
+      console.log(`Invisible characters: ${urlObfuscation.hasInvisibleChars}`);
+      console.log(`Unusual characters: ${urlObfuscation.hasUnusualChars}`);
+    }
     
     // Check URL-related patterns
     const hasExternalUrl = !isAllowedUrl(content, guild);
@@ -522,7 +533,7 @@ async function handleScamMessage(message) {
     
     // Modified condition to always catch dsc.gg and discord invites
     const shouldQuarantine = (
-      ((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl) && hasOnlyBaseRole) ||
+      ((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl || urlObfuscation.isObfuscated) && hasOnlyBaseRole) ||
       isTargetedScam || 
       isScamUser ||
       (hasDscGg && !hasProtectedRole(member)) ||  // Always catch dsc.gg links unless protected
@@ -606,6 +617,18 @@ async function quarantineMessage(message, channelIds) {
     // Wait for all deletion attempts to complete
     await Promise.allSettled(deletionPromises);
     
+    if (global.updateReportData) {
+      let scamType = 'otherScams';
+      if (containsUrlShortener(content)) {
+        scamType = 'urlShorteners';
+      } else if (/discord\.gg[\\/]|discord\.com\/invite[\\/]/i.test(content)) {
+        scamType = 'discordInvites';
+      } else if (detectUrlObfuscation(content).isObfuscated) {
+        scamType = 'encodedUrls';
+      }
+      global.updateReportData(scamType, author.id);
+    }
+
     console.log(`Quarantined message from ${author.tag} in ${channelIds.size} channel(s).`);
 
     // Gather user info for the report
@@ -894,6 +917,29 @@ function hasDeceptiveUrl(content) {
          hasSuspiciousDomain || hasHyphenatedDomain || hasTicketRelatedUrl;
 }
 
+// Add a new function to detect URL encoding and other obfuscation techniques
+function detectUrlObfuscation(content) {
+  // Check for percent encoding (URL encoding)
+  const hasUrlEncoding = /%[0-9A-Fa-f]{2}/.test(content);
+  
+  // Check for line breaks or whitespace in URLs
+  const hasLineBreaksInUrl = /https?:[\s\n\r]*\/[\s\n\r]*\//.test(content);
+  
+  // Check for zero-width spaces and other invisible characters
+  const hasInvisibleChars = /https?:\/\/\S*[\u200B-\u200D\uFEFF\u2060\u180E]\S*/i.test(content);
+  
+  // Check for unusual character combinations in URLs
+  const hasUnusualChars = /https?:\/\/[^\/\s]*[<>()\[\]{}\\|^`~]+[^\/\s]*/i.test(content);
+
+  return {
+    hasUrlEncoding,
+    hasLineBreaksInUrl,
+    hasInvisibleChars,
+    hasUnusualChars,
+    isObfuscated: hasUrlEncoding || hasLineBreaksInUrl || hasInvisibleChars || hasUnusualChars
+  };
+}
+
 //Function to detect unauthorized URLs
 function hasUnauthorizedUrl(message, guild) {
   const content = message.content;
@@ -1143,6 +1189,17 @@ async function handleUnauthorizedUrl(message) {
     
     // Log the action
     console.log(`Unauthorized URL removed from ${userName} (${userId})`);
+
+    if (global.updateReportData) {
+      // Determine the type of scam
+      let scamType = 'otherScams';
+      if (hasShortenerUrl) scamType = 'urlShorteners';
+      else if (hasDiscordInvite) scamType = 'discordInvites';  
+      else if (urlObfuscation.isObfuscated) scamType = 'encodedUrls';
+      
+      // Update the report data
+      global.updateReportData(scamType, message.author.id);
+    }
     
     return true;
   } catch (error) {
@@ -1162,41 +1219,183 @@ function hasProtectedRole(member) {
 }
 
 function setupSimpleDailyReport(client) {
-  // Check every hour if we should send a report
-  setInterval(async () => {
-    const now = new Date();
-    const todayMidnight = new Date().setHours(0, 0, 0, 0);
-    
-    // If it's a new day and we haven't reported yet
-    if (todayMidnight > lastReportTime) {
+  // Store report data beyond just count
+  let reportData = {
+    dailyInterceptCount: 0,
+    lastReportTime: new Date().setHours(0, 0, 0, 0),
+    scamTypes: {
+      urlShorteners: 0,
+      discordInvites: 0,
+      encodedUrls: 0,
+      otherScams: 0
+    },
+    topScammers: new Map() // Track users with most violations
+  };
+
+  // Reset report data
+  function resetReportData() {
+    reportData.dailyInterceptCount = 0;
+    reportData.scamTypes = {
+      urlShorteners: 0,
+      discordInvites: 0, 
+      encodedUrls: 0,
+      otherScams: 0
+    };
+    reportData.topScammers = new Map();
+  }
+
+  function setupSimpleDailyReport(client) {
+    // Store report data beyond just count
+    let reportData = {
+      dailyInterceptCount: 0,
+      lastReportTime: new Date().setHours(0, 0, 0, 0),
+      scamTypes: {
+        urlShorteners: 0,
+        discordInvites: 0,
+        encodedUrls: 0,
+        otherScams: 0
+      },
+      topScammers: new Map() // Track users with most violations
+    };
+  
+    // Reset report data
+    function resetReportData() {
+      reportData.dailyInterceptCount = 0;
+      reportData.scamTypes = {
+        urlShorteners: 0,
+        discordInvites: 0, 
+        encodedUrls: 0,
+        otherScams: 0
+      };
+      reportData.topScammers = new Map();
+    }
+  
+    // Create more detailed report
+    async function sendDetailedReport(guild) {
       try {
-        // Get the guild
-        const guild = client.guilds.cache.first();
-        if (!guild) return;
-        
-        // Get the report channel
         const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
         if (!reportChannel) return;
-        
-        // Format the date for yesterday (UTC)
-        const yesterday = new Date(lastReportTime);
+  
+        // Format the date for yesterday
+        const yesterday = new Date(reportData.lastReportTime);
         const formattedDate = yesterday.toISOString().split('T')[0];
-        
-        // Send the report with the date
-        await reportChannel.send(
-          `📊 **URL Filter Report for ${formattedDate} (UTC)**\n\nUnauthorized URLs intercepted: **${dailyInterceptCount}**`
-        );
-        
+  
+        // Handle no interceptions case
+        if (reportData.dailyInterceptCount === 0) {
+          await reportChannel.send({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle(`📊 Security Report for ${formattedDate}`)
+                .setColor('#00FF00')  // Green color for all-clear
+                .setDescription(`No scam attempts intercepted today! 🎉`)
+                .setFooter({ text: 'Garden Security Bot' })
+                .setTimestamp()
+            ]
+          });
+          
+          // Reset for the new day
+          reportData.lastReportTime = new Date().setHours(0, 0, 0, 0);
+          resetReportData();
+          return;
+        }
+  
+        // Create a more detailed embed report
+        const embed = new EmbedBuilder()
+          .setTitle(`📊 Security Report for ${formattedDate}`)
+          .setColor('#FF0000')
+          .setDescription(`Total interceptions: **${reportData.dailyInterceptCount}**`)
+          .addFields(
+            { 
+              name: 'URL Shorteners', 
+              value: reportData.scamTypes.urlShorteners.toString(), 
+              inline: true 
+            },
+            { 
+              name: 'Discord Invites', 
+              value: reportData.scamTypes.discordInvites.toString(), 
+              inline: true 
+            },
+            { 
+              name: 'Encoded URLs', 
+              value: reportData.scamTypes.encodedUrls.toString(), 
+              inline: true 
+            },
+            { 
+              name: 'Other Scams', 
+              value: reportData.scamTypes.otherScams.toString(), 
+              inline: true 
+            }
+          )
+          .setFooter({ text: 'Garden Security Bot' })
+          .setTimestamp();
+  
+        // Add top offenders if any exist
+        if (reportData.topScammers.size > 0) {
+          const topOffenders = Array.from(reportData.topScammers.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([userId, count], index) => `${index + 1}. <@${userId}>: ${count} violation${count !== 1 ? 's' : ''}`)
+            .join('\n');
+  
+          if (topOffenders) {
+            embed.addFields({ name: 'Top Offenders', value: topOffenders });
+          }
+        } else {
+          // No repeat offenders
+          embed.addFields({ 
+            name: 'Top Offenders', 
+            value: 'No repeat offenders today.' 
+          });
+        }
+  
+        // Send the embed report
+        await reportChannel.send({ embeds: [embed] });
+  
         // Reset for the new day
-        lastReportTime = todayMidnight;
-        dailyInterceptCount = 0;
+        reportData.lastReportTime = new Date().setHours(0, 0, 0, 0);
+        resetReportData();
         
-        console.log(`Sent URL report for ${formattedDate}`);
+        console.log(`Sent detailed security report for ${formattedDate}`);
       } catch (error) {
         console.error('Error sending daily report:', error);
       }
     }
-  }, 60 * 60 * 1000); // Check once per hour
+  
+    // Expose methods to update the statistics from elsewhere in the code
+    global.updateReportData = function(type, userId) {
+      reportData.dailyInterceptCount++;
+      
+      // Update scam type counters
+      if (type && reportData.scamTypes[type] !== undefined) {
+        reportData.scamTypes[type]++;
+      } else {
+        reportData.scamTypes.otherScams++;
+      }
+      
+      // Track user violations if userId is provided
+      if (userId) {
+        const currentCount = reportData.topScammers.get(userId) || 0;
+        reportData.topScammers.set(userId, currentCount + 1);
+      }
+    };
+  
+    // Check every hour if we should send a report
+    setInterval(async () => {
+      const now = new Date();
+      const todayMidnight = new Date().setHours(0, 0, 0, 0);
+      
+      // If it's a new day and we haven't reported yet
+      if (todayMidnight > reportData.lastReportTime) {
+        // Get the guild and send the report
+        const guild = client.guilds.cache.first();
+        if (guild) {
+          await sendDetailedReport(guild);
+        }
+      }
+    }, 60 * 60 * 1000); // Check once per hour
+    
+    return global.updateReportData; // Return the function to update stats
+  }
 }
 
 module.exports = {
