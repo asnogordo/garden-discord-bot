@@ -1244,158 +1244,131 @@ function setupSimpleDailyReport(client) {
     reportData.topScammers = new Map();
   }
 
-  function setupSimpleDailyReport(client) {
-    // Store report data beyond just count
-    let reportData = {
-      dailyInterceptCount: 0,
-      lastReportTime: new Date().setHours(0, 0, 0, 0),
-      scamTypes: {
-        urlShorteners: 0,
-        discordInvites: 0,
-        encodedUrls: 0,
-        otherScams: 0
-      },
-      topScammers: new Map() // Track users with most violations
-    };
-  
-    // Reset report data
-    function resetReportData() {
-      reportData.dailyInterceptCount = 0;
-      reportData.scamTypes = {
-        urlShorteners: 0,
-        discordInvites: 0, 
-        encodedUrls: 0,
-        otherScams: 0
-      };
-      reportData.topScammers = new Map();
-    }
-  
-    // Create more detailed report
-    async function sendDetailedReport(guild) {
-      try {
-        const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
-        if (!reportChannel) return;
-  
-        // Format the date for yesterday
-        const yesterday = new Date(reportData.lastReportTime);
-        const formattedDate = yesterday.toISOString().split('T')[0];
-  
-        // Handle no interceptions case
-        if (reportData.dailyInterceptCount === 0) {
-          await reportChannel.send({
-            embeds: [
-              new EmbedBuilder()
-                .setTitle(`📊 Security Report for ${formattedDate}`)
-                .setColor('#00FF00')  // Green color for all-clear
-                .setDescription(`No scam attempts intercepted today! 🎉`)
-                .setFooter({ text: 'Garden Security Bot' })
-                .setTimestamp()
-            ]
-          });
-          
-          // Reset for the new day
-          reportData.lastReportTime = new Date().setHours(0, 0, 0, 0);
-          resetReportData();
-          return;
-        }
-  
-        // Create a more detailed embed report
-        const embed = new EmbedBuilder()
-          .setTitle(`📊 Security Report for ${formattedDate}`)
-          .setColor('#FF0000')
-          .setDescription(`Total interceptions: **${reportData.dailyInterceptCount}**`)
-          .addFields(
-            { 
-              name: 'URL Shorteners', 
-              value: reportData.scamTypes.urlShorteners.toString(), 
-              inline: true 
-            },
-            { 
-              name: 'Discord Invites', 
-              value: reportData.scamTypes.discordInvites.toString(), 
-              inline: true 
-            },
-            { 
-              name: 'Encoded URLs', 
-              value: reportData.scamTypes.encodedUrls.toString(), 
-              inline: true 
-            },
-            { 
-              name: 'Other Scams', 
-              value: reportData.scamTypes.otherScams.toString(), 
-              inline: true 
-            }
-          )
-          .setFooter({ text: 'Garden Security Bot' })
-          .setTimestamp();
-  
-        // Add top offenders if any exist
-        if (reportData.topScammers.size > 0) {
-          const topOffenders = Array.from(reportData.topScammers.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5)
-            .map(([userId, count], index) => `${index + 1}. <@${userId}>: ${count} violation${count !== 1 ? 's' : ''}`)
-            .join('\n');
-  
-          if (topOffenders) {
-            embed.addFields({ name: 'Top Offenders', value: topOffenders });
-          }
-        } else {
-          // No repeat offenders
-          embed.addFields({ 
-            name: 'Top Offenders', 
-            value: 'No repeat offenders today.' 
-          });
-        }
-  
-        // Send the embed report
-        await reportChannel.send({ embeds: [embed] });
-  
+  // Create more detailed report
+  async function sendDetailedReport(guild) {
+    try {
+      const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
+      if (!reportChannel) return;
+
+      // Format the date for yesterday
+      const yesterday = new Date(reportData.lastReportTime);
+      const formattedDate = yesterday.toISOString().split('T')[0];
+
+      // Handle no interceptions case
+      if (reportData.dailyInterceptCount === 0) {
+        await reportChannel.send({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle(`📊 Security Report for ${formattedDate}`)
+              .setColor('#00FF00')  // Green color for all-clear
+              .setDescription(`No scam attempts intercepted today! 🎉`)
+              .setFooter({ text: 'Botanical Gardener' })
+              .setTimestamp()
+          ]
+        });
+        
         // Reset for the new day
         reportData.lastReportTime = new Date().setHours(0, 0, 0, 0);
         resetReportData();
-        
-        console.log(`Sent detailed security report for ${formattedDate}`);
-      } catch (error) {
-        console.error('Error sending daily report:', error);
+        return;
+      }
+
+      // Create a more detailed embed report
+      const embed = new EmbedBuilder()
+        .setTitle(`📊 Security Report for ${formattedDate}`)
+        .setColor('#FF0000')
+        .setDescription(`Total interceptions: **${reportData.dailyInterceptCount}**`)
+        .addFields(
+          { 
+            name: 'URL Shorteners', 
+            value: reportData.scamTypes.urlShorteners.toString(), 
+            inline: true 
+          },
+          { 
+            name: 'Discord Invites', 
+            value: reportData.scamTypes.discordInvites.toString(), 
+            inline: true 
+          },
+          { 
+            name: 'Encoded URLs', 
+            value: reportData.scamTypes.encodedUrls.toString(), 
+            inline: true 
+          },
+          { 
+            name: 'Other Scams', 
+            value: reportData.scamTypes.otherScams.toString(), 
+            inline: true 
+          }
+        )
+        .setFooter({ text: 'Botanical Gardener' })
+        .setTimestamp();
+
+      // Add top offenders if any exist
+      if (reportData.topScammers.size > 0) {
+        const topOffenders = Array.from(reportData.topScammers.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([userId, count], index) => `${index + 1}. <@${userId}>: ${count} violation${count !== 1 ? 's' : ''}`)
+          .join('\n');
+
+        if (topOffenders) {
+          embed.addFields({ name: 'Top Offenders', value: topOffenders });
+        }
+      } else {
+        // No repeat offenders
+        embed.addFields({ 
+          name: 'Top Offenders', 
+          value: 'No repeat offenders today.' 
+        });
+      }
+
+      // Send the embed report
+      await reportChannel.send({ embeds: [embed] });
+
+      // Reset for the new day
+      reportData.lastReportTime = new Date().setHours(0, 0, 0, 0);
+      resetReportData();
+      
+      console.log(`Sent detailed security report for ${formattedDate}`);
+    } catch (error) {
+      console.error('Error sending daily report:', error);
+    }
+  }
+
+  // Expose methods to update the statistics from elsewhere in the code
+  global.updateReportData = function(type, userId) {
+    reportData.dailyInterceptCount++;
+    
+    // Update scam type counters
+    if (type && reportData.scamTypes[type] !== undefined) {
+      reportData.scamTypes[type]++;
+    } else {
+      reportData.scamTypes.otherScams++;
+    }
+    
+    // Track user violations if userId is provided
+    if (userId) {
+      const currentCount = reportData.topScammers.get(userId) || 0;
+      reportData.topScammers.set(userId, currentCount + 1);
+    }
+  };
+
+  // Check every 10 minutes if we should send a report
+  setInterval(async () => {
+    const now = new Date();
+    const todayMidnight = new Date().setHours(0, 0, 0, 0);
+    
+    // If it's a new day and we haven't reported yet
+    if (todayMidnight > reportData.lastReportTime) {
+      // Get the guild and send the report
+      const guild = client.guilds.cache.first();
+      if (guild) {
+        await sendDetailedReport(guild);
       }
     }
+  }, 10 * 60 * 1000); // Check every 10 minutes
   
-    // Expose methods to update the statistics from elsewhere in the code
-    global.updateReportData = function(type, userId) {
-      reportData.dailyInterceptCount++;
-      
-      // Update scam type counters
-      if (type && reportData.scamTypes[type] !== undefined) {
-        reportData.scamTypes[type]++;
-      } else {
-        reportData.scamTypes.otherScams++;
-      }
-      
-      // Track user violations if userId is provided
-      if (userId) {
-        const currentCount = reportData.topScammers.get(userId) || 0;
-        reportData.topScammers.set(userId, currentCount + 1);
-      }
-    };
-  
-    // Check every hour if we should send a report
-    setInterval(async () => {
-      const now = new Date();
-      const todayMidnight = new Date().setHours(0, 0, 0, 0);
-      
-      // If it's a new day and we haven't reported yet
-      if (todayMidnight > reportData.lastReportTime) {
-        // Get the guild and send the report
-        const guild = client.guilds.cache.first();
-        if (guild) {
-          await sendDetailedReport(guild);
-        }
-      }
-    }, 60 * 60 * 1000); // Check once per hour
-    
-    return global.updateReportData; // Return the function to update stats
-  }
+  return global.updateReportData; // Return the function to update stats
 }
 
 module.exports = {
