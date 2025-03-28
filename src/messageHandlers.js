@@ -1138,9 +1138,15 @@ async function handleUnauthorizedUrl(message) {
     const userId = message.author.id;
     const userName = message.author.tag;
     const messageId = message.id;
+    const content = message.content;
+
+    // Determine the URL type for reporting
+    const hasShortenerUrl = containsUrlShortener(content);
+    const hasDiscordInvite = /discord\.gg[\\/]|discord\.com\/invite[\\/]/i.test(content);
+    const urlObfuscation = detectUrlObfuscation(content);
 
     dailyInterceptCount++;
-    console.log(`Intercepting unauthorized URL (count: ${dailyInterceptCount}): ${message.content.substring(0, 100)}...`);
+    console.log(`Intercepting unauthorized URL (count: ${dailyInterceptCount}): ${content.substring(0, 100)}...`);
     
     // First check if message still exists and is deletable
     try {
