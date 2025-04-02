@@ -141,6 +141,19 @@ function canBeModerated(member, moderator) {
   }
 }
 
+// Add this function to help determine if a message is a question
+function isLikelyQuestion(content) {
+  // Check for question marks
+  if (content.includes('?')) return true;
+  
+  // Check for interrogative words at the start of sentences
+  if (/^(?:how|what|when|where|why|who|which|can|could|would|is|are|do|does|did|has|have|should)\b/i.test(content)) {
+    return true;
+  }
+  
+  return false;
+}
+
 module.exports = {
   formatNumber,
   codeBlock,
@@ -151,5 +164,6 @@ module.exports = {
   formatDuration,
   isAboveBaseRole,
   hasProtectedRole,
-  canBeModerated
+  canBeModerated,
+  isLikelyQuestion
 };

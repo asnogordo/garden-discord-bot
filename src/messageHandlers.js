@@ -4,7 +4,7 @@ const {
   GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID, EXCLUDED_CHANNELS,
   EXCLUDED_CHANNEL_PATTERNS,PROTECTED_ROLE_IDS
 } = require('./config');
-const { codeBlock, helloMsgReply, pickFromList, formatDuration,canBeModerated } = require('./utils');
+const { codeBlock, helloMsgReply, pickFromList, isLikelyQuestion,canBeModerated } = require('./utils');
 const { 
   ADDRESSES_EMBEDDED_MSG, 
   createWarningMessageEmbed
@@ -37,10 +37,14 @@ const URL_SHORTENERS = [
   'tr.im', 'dsc.gg', 'adf.ly', 'tiny.cc', 'shorten.me', 'clck.ru', 'cutt.ly',
   'rebrand.ly', 'short.io', 'bl.ink', 'snip.ly', 'lnk.to', 'hive.am',
   'shor.by', 'bc.vc', 'v.gd', 'qps.ru', 'spoo.me', 'x.co', 'yourls.org',
-  'shorturl.at', 'tny.im', 'u.to', 'url.ie', 'shrturi.com', 's.id'
+  'shorturl.at', 'tny.im', 'u.to', 'url.ie', 'shrturi.com', 's.id',
+  'tr.ee', 'kutt.it', 'dub.sh', 'soo.gd', 'qr.ae', 'tothe.link',
+  'san.aq', 'KurzeLinks.de', 'lstu.fr', 'bitly.pk'
 ];
 
 const suspiciousUserThreads = new Map();
+const processingMessages = new Map();
+const PROCESSING_TIMEOUT = 30000; // 30 seconds max processing time
 
 let dailyInterceptCount = 0;
 let lastReportTime = new Date().setHours(0, 0, 0, 0);
@@ -111,7 +115,7 @@ const scamPatterns = [
   /discord\.com\/invite\/.*(?:submit|query|support|ticket)/i,
   /create.*ticket.*(?:https|discord\.gg)/i,
   /(?:👆|👇|👉).*https/i,
-  /https.*(?:👆|👇|👉)/i
+  /https.*(?:👆|👇|👉)/i,
 ];
 
 const urlPattern = /https?:\/\/([^\/\s]+)([^\s]*)/gi;
@@ -135,16 +139,14 @@ const claimingIssues = /\b(?:claim(?:ing)?)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?
 const transactionIssues = /\b(?:transaction|refund|sent|transfer|overpaid|payment)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone|to|is)\b).*\b(?:issue|problem|error|stuck|fail(?:ed|ing)?|missing|lost|pending)\b/i;
 const orderIssues = /\b(?:order)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:stuck|pending|fail(?:ed|ing)?|issue|problem|long time)\b/i;
 const gardenExplorer = /(?:\b(?:wh?en|where|how|can|does|do I|is|what|show|find|see|check|get|open|access|view|use|link to)(?:\s+\w+){0,5}\s+(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer|txs?|transaction\s*status|tx\s*status|transactions?))|(?:\b(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer)(?:\s+\w+){0,2}\s+(?:link|url|site|page|website))|(?:\bexplorer\b)|(?:\btx\s*link\b)/i;
-const metricsAnalytics = /(?:how|where|what|which|can|is there).*(?:check|see|find|view|get|analytics|metrics|stats|statistics|volume|data|chart|graph|dashboard|numbers|tvl|defi.?llama|dune)/i;
+const metricsAnalytics = /(?:how|where|what|which|can|is there).*(?:(?:check|see|find|view|get)\s+(?:garden|seed)?\s*(?:analytics|metrics|stats|statistics|volume|data|chart|graph|dashboard|numbers|tvl))|(?:defi.?llama|dune\s*analytics|explorer)/i;
 
 // GIF lists
 const wenMoonGifs = [
   'https://c.tenor.com/YZWhYF-xV4kAAAAd/when-moon-admin.gif',
   'https://c.tenor.com/R6Zf7aUegagAAAAd/lambo.gif',
-  'https://media1.tenor.com/m/9idtwWwfCdAAAAAC/wen-when.gif',
-  'https://media1.tenor.com/m/LZZfKVHwpoIAAAAC/waiting-penguin.gif',
-  'https://media1.tenor.com/m/1vXRFJxqIVgAAAAC/waiting-waiting-patiently.gif',
-  'https://media1.tenor.com/m/XIr-1aBPoCEAAAAC/walk-hard-the-dewey-cox-story.gif'
+  'https://c.tenor.com/1vXRFJxqIVgAAAAC/tenor.gif',
+  'https://c.tenor.com/XIr-1aBPoCEAAAAC/tenor.gif'
 ];
 
 const wenLamboGifs = [
@@ -156,22 +158,22 @@ const meaningOfLifeGifs = [
   'https://pa1.narvii.com/6331/0e0ef4cfaf24742e0ca39e79a4df2a1aff6f928c_hq.gif',
   'https://i.giphy.com/media/dYgDRfc61SGtO/giphy.webp',
   'https://i.giphy.com/media/OY9XK7PbFqkNO/giphy.webp',
-  'https://media1.tenor.com/m/Qc-OTTAsDnAAAAAd/best-field-day-ever.gif'
+  'https://c.tenor.com/Qc-OTTAsDnAAAAAd/tenor.gif'
 ];
 
 const workingOnItGifs = [
-  'Soon™\nhttps://media1.tenor.com/m/RXGEDEM_odoAAAAC/burstofenergy.gif',
-  'Soon™\nhttps://media1.tenor.com/m/GS--K_H775kAAAAC/gardener-expert.gif',
-  'Soon™\nhttps://media1.tenor.com/m/OiuNG8MQKkYAAAAC/nature-flower.gif',
-  'Soon™\nhttps://media1.tenor.com/m/W42sxw9yTZkAAAAC/ponste9.gif',
-  'Soon™\nhttps://media1.tenor.com/m/1ZPySWYcQkAAAAAC/cem-gif.gif',
-  'Soon™\nhttps://media1.tenor.com/m/vo2C5ig9SIMAAAAd/erkenci-kus-sanem.gif',
-  'Soon™\nhttps://media1.tenor.com/m/CmogjUfSyckAAAAd/aum-animation-andy-pirki.gif'
+  'Soon™\nhttps://c.tenor.com/RXGEDEM_odoAAAAC/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/GS--K_H775kAAAAC/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/OiuNG8MQKkYAAAAC/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/W42sxw9yTZkAAAAC/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/1ZPySWYcQkAAAAAC/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/vo2C5ig9SIMAAAAd/tenor.gif',
+  'Soon™\nhttps://c.tenor.com/CmogjUfSyckAAAAd/tenor.gif'
 ];
 
 const wenDudeGifs = [
-  'https://media1.tenor.com/m/FC_My5JT638AAAAC/the-big-lebowski-the-dude.gif',
-  'https://media1.tenor.com/m/GscrdOO29OUAAAAd/the-dude-big-lebowski.gif',
+  'https://c.tenor.com/FC_My5JT638AAAAC/tenor.gif',
+  'https://c.tenor.com/GscrdOO29OUAAAAd/tenor.gif',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWZnaWkyOTQ2aDE3ZWgzejB1bnFhM3JrZGFxdWZtNXpwbmljbDljaCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/lnDvZtsnWfnnX4T0KA/giphy-downsized-large.gif',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGl6NTdwemdzNDM0eDVha3I1eXFraWU2ZXVreXQ1MmJlY2Q3MHc0ayZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/J6JDizWgG3bX704JEU/giphy-downsized-large.gif',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWdpZ3U3b3pzb3RmOHB4cHpkZ2s0NDczYXdzbmZ5NGpyMmt1bjRjaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7bueYrEU0GcwzTKo/giphy.gif',
@@ -179,7 +181,7 @@ const wenDudeGifs = [
 ];
 
 const celebratoryGifs = [
-  'https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif',
+  'https://i.giphy.com/l0MYt5jPR6QX5pnqM.webp',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3hmNmJhZnM1ZjB2dHB0cGgyczBwdjk0bmNoZzk5M3RsdXlvbDY1aiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/x3ijPhltY1z7EGdxGT/giphy.gif',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExNmE0dGk4am9kdG04MWV6bjV1NDJjeHJ4ZGNoaHlvYjRmeHExMzlycyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/MWDLf1EIUsoNy/giphy.gif',
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExeGFsODljZ3Fsbmxnd2JmOTk0bnFiNTk1bHRxc3duNGdjZTM1cG5lZiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/GXMuvJXWVqGiY/giphy.gif',
@@ -202,20 +204,35 @@ const recentMessages = new Map();
 
 async function handleMessage(message) {
   const messageId = message.id;
+  const now = Date.now();
+  
+  // Clean up stale locks (messages that started processing > 30 seconds ago)
+  for (const [id, timestamp] of processingMessages.entries()) {
+    if (now - timestamp > PROCESSING_TIMEOUT) {
+      console.log(`Removing stale lock for message ${id}`);
+      processingMessages.delete(id);
+    }
+  }
   
   // Skip if message is already being processed
-  if (processingLock.has(messageId)) {
+  if (processingMessages.has(messageId)) {
     return;
   }
 
+  // Add to processing
+  processingMessages.set(messageId, now);
+
   try {
-
-    processingLock.add(messageId);
-
+    // Process the message asynchronously
     const { author, content, member, channel, guild } = message;
 
-    // Check if channel should be excluded from message handling
-    if (isChannelExcluded(channel)) {
+    // Run checks in parallel when possible
+    const [isExcluded, isProtected] = await Promise.all([
+      isChannelExcluded(channel),
+      member ? hasProtectedRole(member) : Promise.resolve(false)
+    ]);
+
+    if (isExcluded) {
       return;
     }
     
@@ -223,28 +240,41 @@ async function handleMessage(message) {
       console.log('Do not reply to bots', message.author.tag);
       return;
     }
+
+    // Improve message type checking - only do this check once
     if (message.type !== MessageType.Default && message.type !== MessageType.Reply) {
-      console.log('Can only interact with default messages and replies', message.type);
+      console.log('Not processing message type:', message.type);
       return;
     }
-    console.log(message.type);
-    if (message.type !== MessageType.Default) {
-      console.log('Can only interact with default messages', message.type);
-      return;
-    }
+
     if (channel.type === ChannelType.DM) {
       message.reply(
         codeBlock(cowsay.say({ text: "I am a bot and can't reply, beep bop" })),
       );
       return;
     }
-    
-    const isProtected = hasProtectedRole(member);
-    await handleScamMessage(message);
 
-    if (!message.deleted && hasUnauthorizedUrl(message, guild) && !isProtected) {
-      await handleUnauthorizedUrl(message);
-      return;
+    // Process messages for non-protected users
+    if (!isProtected) {
+      // First check for unauthorized URLs
+      const hasUnauthorizedUrls = hasUnauthorizedUrl(message, guild);
+      
+      // If there are unauthorized URLs, handle them
+      if (hasUnauthorizedUrls) {
+        await handleUnauthorizedUrl(message);
+        return;
+      }
+      
+      // Then proceed with scam detection, which can assume URLs are already validated
+      await handleScamMessage(message);
+      
+      // Check if message was deleted by scam handler
+      try {
+        await message.channel.messages.fetch(message.id);
+      } catch (e) {
+        // Message was deleted, stop processing
+        return;
+      }
     }
     
     if (wenMoon.test(message.content)) {
@@ -302,20 +332,19 @@ async function handleMessage(message) {
       await message.reply(`If you are having issues claiming $SEED, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
     } else if (orderIssues.test(message.content) || transactionIssues.test(message.content)) {
       await message.reply(`If you have questions about a transaction or need help with a refund, please provide your order ID and open a support ticket in <#${SUPPORT_CHANNEL_ID}>`);
-    } else if (metricsAnalytics.test(message.content)) {
+    } else if (metricsAnalytics.test(message.content) && isLikelyQuestion(message.content)) {
       await message.reply(
-        "You can check Garden Finance metrics on:\n\n" +
+        "You can check Garden metrics on:\n\n" +
         "🔍 **Garden Explorer**: <https://explorer.garden.finance/>\n" +
-        "📈 **Dune Analytics**: <https://dune.com/garden_finance/gardenfinance>\n" +
-        "📊 **DefiLlama**: <https://defillama.com/protocol/garden>"
-
+        "📊 **Dune**: <https://dune.com/garden_finance/gardenfinance>\n" +
+        "📈 **DefiLlama**: <https://defillama.com/protocol/garden>"
       );
     } 
   } catch (e) {
     console.error('Something failed handling a message', e);
   } finally {
     // Always remove from processing lock when done
-    processingLock.delete(messageId);
+    processingMessages.delete(messageId);
   }
 }
 
@@ -336,94 +365,213 @@ function isSuspectedScammer(userId) {
 }
 
 async function handleScamMessage(message) {
-  const { author, content, channel, member, guild } = message;
-  const key = `${author.id}:${content}`;
-
-  // Skip for users with protected roles
-  if (hasProtectedRole(member)) {
-    return;
-  }
-
-  // Get the bot's member object properly
-  const botMember = message.guild.members.cache.get(message.client.user.id);
+  try {
+    const { author, content, channel, member, guild } = message;
+    const key = `${author.id}:${content}`;
     
-  // Do scam pattern checks before the moderation check
-  const isScamContent = scamPatterns.some(pattern => pattern.test(message.content));
-  const hasExternalUrl = !isAllowedUrl(content, guild);
-  const hasDeceptiveUrlContent = hasDeceptiveUrl(message.content);
-  const hasShortenerUrl = containsUrlShortener(message.content);
-
-  if (!canBeModerated(member, botMember)) {
-    let scamDetected = false;
-    let scamReasons = [];
+    console.log(`\n==== SCAM CHECK: ${author.tag} ====`);
+    console.log(`Message: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`);
+    console.log(`Channel: ${channel.name} (${channel.id})`);
     
-    if (isScamContent) {
-      scamDetected = true;
-      scamReasons.push("matched scam pattern");
+    // Skip for users with protected roles
+    if (hasProtectedRole(member)) {
+      console.log(`SKIPPED: User has protected role`);
+      return false;
     }
-    
-    if (hasExternalUrl||hasShortenerUrl) {
-      scamDetected = true;
-      scamReasons.push("contains external URL");
-    }
-    
-    if (hasDeceptiveUrlContent) {
-      scamDetected = true;
-      scamReasons.push("contains deceptive URL");
-    }
-    
-    console.log(`Skipping scam check for protected/higher role user ${author.tag}${scamDetected ? ` [WOULD TRIGGER: ${scamReasons.join(", ")}]` : ""}`);
-    return;
-  }
 
-  // Check if all mentioned users have only the base role
-  const mentionedUsersHaveOnlyBaseRole = message.mentions.users.size > 0 
-    ? await Promise.all(
-        message.mentions.users.map(async (user) => {
-          const member = await message.guild.members.fetch(user);
-          return member.roles.cache.size === 2 && member.roles.cache.has(BASE_ROLE_ID);
-        })
-      ).then(results => results.every(Boolean))
-    : false;
-  const isScamUser = userDisplayName.some(pattern => pattern.test(member.displayName));
-  const hasMentions = (message.mentions.users.size > 0 && mentionedUsersHaveOnlyBaseRole) || message.mentions.everyone;
-  const hasAnyMentions = (message.mentions.users.size > 0) || message.mentions.everyone;
-
-  const userRoles = message.member.roles.cache;
-  // Check if the user has only the base role
-  const hasOnlyBaseRole = userRoles.size === 2 && userRoles.has(BASE_ROLE_ID);
+    // Get the bot's member object properly
+    const botMember = message.guild.members.cache.get(message.client.user.id);
       
-  if (!recentMessages.has(key)) {
-    recentMessages.set(key, new Set());
-  }
-
-  const channels = recentMessages.get(key);
-  channels.add(channel.id);
-
-  // If the same message appears in more than 2 channels, quarantine it
-  if (channels.size > 2 && hasOnlyBaseRole) {
-    await quarantineMessage(message, channels);
-    return;
-  }
-  setTimeout(() => {
-    channels.delete(channel.id);
-    if (channels.size === 0) {
-      recentMessages.delete(key);
+    // Check if we can moderate this user
+    if (!canBeModerated(member, botMember)) {
+      console.log(`SKIPPED: User cannot be moderated (higher role or missing permissions)`);
+      return false;
     }
-  }, 3600000); // 1 hour in milliseconds
 
-  const isTargetedScam = isTargetedScamMessage(message, hasOnlyBaseRole, hasMentions, hasExternalUrl);
-
-  if (((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl) && hasOnlyBaseRole) || isTargetedScam || isScamUser) {
-    await quarantineMessage(message, new Set([channel.id]));
-  }
-
-  // Handle repeated mentions and spam occurrences
-  if (isSuspectedScammer(author.id)) {
-    if (hasAnyMentions) {
-      await handleRepeatedMentions(message);
+    // Run individual pattern checks with detailed logging
+    console.log(`\n--- Running scam pattern checks ---`);
+    
+    // Check against scam patterns
+    const matchedPatterns = [];
+    for (let i = 0; i < scamPatterns.length; i++) {
+      if (scamPatterns[i].test(content)) {
+        matchedPatterns.push(i);
+      }
     }
-    await handleSpamOccurrences(message);
+    
+    const isScamContent = matchedPatterns.length > 0;
+    console.log(`SCAM CONTENT CHECK: ${isScamContent ? 'MATCHED' : 'No match'}`);
+    if (isScamContent) {
+      console.log(`Matched patterns: ${matchedPatterns.join(', ')}`);
+      matchedPatterns.forEach(i => {
+        console.log(`Pattern ${i}: ${scamPatterns[i]}`);
+      });
+    }
+
+    const urlObfuscation = detectUrlObfuscation(content);
+    console.log(`URL OBFUSCATION CHECK: ${urlObfuscation.isObfuscated ? 'DETECTED' : 'Not detected'}`);
+    if (urlObfuscation.isObfuscated) {
+      console.log(`URL encoding: ${urlObfuscation.hasUrlEncoding}`);
+      console.log(`Line breaks in URL: ${urlObfuscation.hasLineBreaksInUrl}`);
+      console.log(`Invisible characters: ${urlObfuscation.hasInvisibleChars}`);
+      console.log(`Unusual characters: ${urlObfuscation.hasUnusualChars}`);
+    }
+    
+    // Check URL-related patterns
+    const hasExternalUrl = !isAllowedUrl(content, guild);
+    console.log(`EXTERNAL URL CHECK: ${hasExternalUrl ? 'FOUND' : 'Not found'}`);
+    if (hasExternalUrl) {
+      // Extract and log URLs
+      const urlMatches = content.match(/https?:\/\/([^\/\s]+)([^\s]*)/gi) || [];
+      urlMatches.forEach(url => console.log(`Found URL: ${url}`));
+      
+      // Also check plain domain matches
+      const plainMatches = content.match(/(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|app|dev|info|co|gg))\b/gi) || [];
+      plainMatches.forEach(domain => console.log(`Found domain: ${domain}`));
+    }
+    
+    const hasDeceptiveUrlContent = hasDeceptiveUrl(content);
+    console.log(`DECEPTIVE URL CHECK: ${hasDeceptiveUrlContent ? 'DETECTED' : 'Not detected'}`);
+    
+    const hasShortenerUrl = containsUrlShortener(content);
+    console.log(`URL SHORTENER CHECK: ${hasShortenerUrl ? 'FOUND' : 'Not found'}`);
+    
+    // Check for dsc.gg links explicitly
+    const hasDscGg = /dsc\.gg\//i.test(content);
+    console.log(`DSC.GG CHECK: ${hasDscGg ? 'FOUND' : 'Not found'}`);
+    
+    // Check for discord.gg links
+    const hasDiscordInvite = /discord\.gg[\\/]/i.test(content) || 
+    /discord\.com\/invite[\\/]/i.test(content) ||
+    /discord[\.\s]*(?:gg|com[\.\s]*[\\/][\.\s]*invite)[\\\/:]/i.test(content);
+    console.log(`DISCORD INVITE CHECK: ${hasDiscordInvite ? 'FOUND' : 'Not found'}`);
+
+    // Check user roles
+    const userRoles = message.member.roles.cache;
+    const hasOnlyBaseRole = userRoles.size === 2 && userRoles.has(BASE_ROLE_ID);
+    console.log(`\n--- User role check ---`);
+    console.log(`User has ${userRoles.size} roles`);
+    console.log(`Has only base role: ${hasOnlyBaseRole ? 'YES' : 'NO'}`);
+    console.log(`Roles: ${Array.from(userRoles.values()).map(r => r.name).join(', ')}`);
+    
+    // Check mentions
+    console.log(`\n--- Mention check ---`);
+    console.log(`Mentions count: ${message.mentions.users.size}`);
+    console.log(`Has @everyone: ${message.mentions.everyone ? 'YES' : 'NO'}`);
+    
+    // Fetch mentions info
+    let mentionedUsersHaveOnlyBaseRole = false;
+    if (message.mentions.users.size > 0) {
+      console.log(`Checking roles of mentioned users...`);
+      
+      const mentionRoleChecks = await Promise.all(
+        message.mentions.users.map(async (user) => {
+          try {
+            const mentionedMember = await message.guild.members.fetch(user);
+            const hasOnlyBase = mentionedMember.roles.cache.size === 2 && 
+                               mentionedMember.roles.cache.has(BASE_ROLE_ID);
+            console.log(`Mentioned user ${user.tag}: has only base role: ${hasOnlyBase ? 'YES' : 'NO'}`);
+            return hasOnlyBase;
+          } catch (e) {
+            console.error(`Failed to fetch member for ${user.id}:`, e.message);
+            return false;
+          }
+        })
+      );
+      
+      mentionedUsersHaveOnlyBaseRole = mentionRoleChecks.every(Boolean);
+      console.log(`All mentioned users have only base role: ${mentionedUsersHaveOnlyBaseRole ? 'YES' : 'NO'}`);
+    }
+
+    const hasMentions = (message.mentions.users.size > 0 && mentionedUsersHaveOnlyBaseRole) || message.mentions.everyone;
+    const hasAnyMentions = (message.mentions.users.size > 0) || message.mentions.everyone;
+    console.log(`Has qualifying mentions: ${hasMentions ? 'YES' : 'NO'}`);
+    console.log(`Has any mentions: ${hasAnyMentions ? 'YES' : 'NO'}`);
+
+    // Check username patterns
+    const isScamUser = userDisplayName.some(pattern => pattern.test(member.displayName));
+    console.log(`\n--- Username check ---`);
+    console.log(`Username matches scam pattern: ${isScamUser ? 'YES' : 'NO'}`);
+    console.log(`Display name: ${member.displayName}`);
+        
+    // Track multi-channel spam
+    if (!recentMessages.has(key)) {
+      recentMessages.set(key, new Set());
+    }
+
+    const channels = recentMessages.get(key);
+    channels.add(channel.id);
+    console.log(`\n--- Multi-channel check ---`);
+    console.log(`Message seen in ${channels.size} channels`);
+
+    // If the same message appears in more than 2 channels, quarantine it
+    if (channels.size > 2 && hasOnlyBaseRole) {
+      console.log(`QUARANTINE TRIGGERED: Message in ${channels.size} channels`);
+      await quarantineMessage(message, channels);
+      return true;
+    }
+    
+    // Set a timeout to clean up this entry from recentMessages
+    setTimeout(() => {
+      const channelSet = recentMessages.get(key);
+      if (channelSet) {
+        channelSet.delete(channel.id);
+        if (channelSet.size === 0) {
+          recentMessages.delete(key);
+        }
+      }
+    }, 3600000); // 1 hour in milliseconds
+
+    // Check for targeted scam patterns
+    const isTargetedScam = isTargetedScamMessage(message, hasOnlyBaseRole, hasMentions, hasExternalUrl);
+    console.log(`\n--- Targeted scam check ---`);
+    console.log(`Is targeted scam: ${isTargetedScam ? 'YES' : 'NO'}`);
+
+    // Final decision logic
+    console.log(`\n--- FINAL DECISION ---`);
+    
+    // Modified condition to always catch dsc.gg and discord invites
+    const shouldQuarantine = (
+      ((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl || urlObfuscation.isObfuscated) && hasOnlyBaseRole) ||
+      isTargetedScam || 
+      isScamUser ||
+      (hasDscGg && !hasProtectedRole(member)) ||  // Always catch dsc.gg links unless protected
+      (hasDiscordInvite && !hasProtectedRole(member) && !content.includes('garden.finance')) // Always catch discord invites unless protected or official
+    );
+    
+    console.log(`Should quarantine: ${shouldQuarantine ? 'YES' : 'NO'}`);
+    
+    if (shouldQuarantine) {
+      console.log(`QUARANTINE TRIGGERED: Scam detected`);
+      await quarantineMessage(message, new Set([channel.id]));
+      return true;
+    }
+
+    // Handle repeated mentions and spam occurrences
+    console.log(`\n--- SUSPECTED SCAMMER CHECK ---`);
+    const isSuspected = isSuspectedScammer(author.id);
+    console.log(`Is suspected scammer: ${isSuspected ? 'YES' : 'NO'}`);
+    
+    if (isSuspected) {
+      console.log(`Processing actions for suspected scammer...`);
+      let actionTaken = false;
+      if (hasAnyMentions) {
+        actionTaken = await handleRepeatedMentions(message);
+        console.log(`Handled repeated mentions: action taken: ${actionTaken ? 'YES' : 'NO'}`);
+      }
+      const spamActionTaken = await handleSpamOccurrences(message);
+      console.log(`Handled spam occurrences: action taken: ${spamActionTaken ? 'YES' : 'NO'}`);
+      return actionTaken || spamActionTaken;
+    }
+    
+    console.log(`NO ACTION TAKEN: Message passed all checks`);
+    console.log(`==== END SCAM CHECK ====\n`);
+    return false; // No action taken
+  } catch (e) {
+    console.error('Error in handleScamMessage:', e);
+    console.log(`ERROR in handleScamMessage: ${e.message}`);
+    console.log(`==== END SCAM CHECK (ERROR) ====\n`);
+    return false;
   }
 }
 
@@ -434,31 +582,76 @@ async function quarantineMessage(message, channelIds) {
     
     // Delete all instances of the message
     const deletionPromises = Array.from(channelIds).map(async (channelId) => {
-      const channel = await guild.channels.fetch(channelId);
-      const messages = await channel.messages.fetch({ limit: 100 });
-      const userMessages = messages.filter(m => m.author.id === author.id && m.content === content);
-      return Promise.all(userMessages.map(async m => 
-      {
-          if (m.deletable) {
-            await m.delete();
+      try {
+        const channel = await guild.channels.fetch(channelId);
+        if (!channel) {
+          console.log(`Channel ${channelId} not found, skipping`);
+          return;
+        }
+
+        try {
+          const messages = await channel.messages.fetch({ limit: 100 });
+          const userMessages = messages.filter(m => 
+            m.author.id === author.id && m.content === content
+          );
+          
+          for (const m of userMessages.values()) {
+            try {
+              if (m.deletable) {
+                await m.delete();
+                console.log(`Deleted message ${m.id} from ${author.tag}`);
+              }
+            } catch (deleteError) {
+              console.error(`Failed to delete message ${m.id}:`, deleteError.message);
+            }
           }
-      }));
+        } catch (messagesError) {
+          console.error(`Failed to fetch messages in channel ${channelId}:`, messagesError.message);
+        }
+      } catch (channelError) {
+        console.error(`Failed to fetch channel ${channelId}:`, channelError.message);
+      }
     });
     
-    await Promise.all(deletionPromises);
+    // Wait for all deletion attempts to complete
+    await Promise.allSettled(deletionPromises);
     
+    if (global.updateReportData) {
+      let scamType = 'otherScams';
+      if (containsUrlShortener(content)) {
+        scamType = 'urlShorteners';
+      } else if (/discord\.gg[\\/]|discord\.com\/invite[\\/]/i.test(content)) {
+        scamType = 'discordInvites';
+      } else if (detectUrlObfuscation(content).isObfuscated) {
+        scamType = 'encodedUrls';
+      }
+      global.updateReportData(scamType, author.id);
+    }
+
     console.log(`Quarantined message from ${author.tag} in ${channelIds.size} channel(s).`);
 
-    const joinDate = member.joinedAt.toDateString();
-    const displayName = member.displayName;
-    const username = author.username;
-    const userId = author.id;
-    const accountCreatedAt = author.createdAt.toDateString();
-    
-    const roles = member.roles.cache
-      .filter(role => role.name !== '@everyone')
-      .map(role => role.name)
-      .join(', ');
+    // Gather user info for the report
+    let joinDate = "Unknown";
+    let displayName = author.username;
+    let username = author.username;
+    let userId = author.id;
+    let accountCreatedAt = author.createdAt ? author.createdAt.toDateString() : "Unknown";
+    let roles = "None";
+
+    try {
+      joinDate = member.joinedAt ? member.joinedAt.toDateString() : "Unknown";
+      displayName = member.displayName || "Unknown";
+      
+      const memberRoles = member.roles?.cache;
+      if (memberRoles && memberRoles.size > 0) {
+        roles = memberRoles
+          .filter(role => role.name !== '@everyone')
+          .map(role => role.name)
+          .join(', ') || "None";
+      }
+    } catch (memberError) {
+      console.error(`Error getting member details: ${memberError.message}`);
+    }
 
     const originalMessage = content.trim();
 
@@ -468,14 +661,22 @@ async function quarantineMessage(message, channelIds) {
       scammer.spamOccurrences
     );
 
-    const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
-    if (reportChannel) {
-      await sendThreadedReport(reportChannel, author, warningMessageEmbed);
-    } else {
-      console.error('Report channel not found');
+    // Send the report to the scam channel
+    try {
+      const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
+      if (reportChannel) {
+        await sendThreadedReport(reportChannel, author, warningMessageEmbed);
+      } else {
+        console.error('Scam report channel not found (ID:', SCAM_CHANNEL_ID, ')');
+      }
+    } catch (reportError) {
+      console.error('Failed to send scam report:', reportError.message);
     }
+
+    return true; // Indicate that action was taken
   } catch (error) {
-    console.error('Failed to quarantine message or send warning:', error);
+    console.error('Failed to quarantine message:', error);
+    return false; // Indicate failure
   }
 }
 
@@ -715,6 +916,29 @@ function hasDeceptiveUrl(content) {
          hasSuspiciousDomain || hasHyphenatedDomain || hasTicketRelatedUrl;
 }
 
+// Add a new function to detect URL encoding and other obfuscation techniques
+function detectUrlObfuscation(content) {
+  // Check for percent encoding (URL encoding)
+  const hasUrlEncoding = /%[0-9A-Fa-f]{2}/.test(content);
+  
+  // Check for line breaks or whitespace in URLs
+  const hasLineBreaksInUrl = /https?:[\s\n\r]*\/[\s\n\r]*\//.test(content);
+  
+  // Check for zero-width spaces and other invisible characters
+  const hasInvisibleChars = /https?:\/\/\S*[\u200B-\u200D\uFEFF\u2060\u180E]\S*/i.test(content);
+  
+  // Check for unusual character combinations in URLs
+  const hasUnusualChars = /https?:\/\/[^\/\s]*[<>()\[\]{}\\|^`~]+[^\/\s]*/i.test(content);
+
+  return {
+    hasUrlEncoding,
+    hasLineBreaksInUrl,
+    hasInvisibleChars,
+    hasUnusualChars,
+    isObfuscated: hasUrlEncoding || hasLineBreaksInUrl || hasInvisibleChars || hasUnusualChars
+  };
+}
+
 //Function to detect unauthorized URLs
 function hasUnauthorizedUrl(message, guild) {
   const content = message.content;
@@ -737,7 +961,7 @@ function hasUnauthorizedUrl(message, guild) {
 
   // Regular expression to match URLs
   const urlRegex = /https?:\/\/([^\/\s]+)(\/[^\s]*)?/gi;
-  const plainUrlRegex = /(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|app|dev|info|co|gg))\b/gi;
+  const plainUrlRegex = /(?<![.@\w])((?:\w+\.)+(?:com|org|network|ca|net|io|finance|xyz|app|dev|info|co|gg))\b/gi;
   
   // First check for standard URLs (with http/https)
   let match;
@@ -805,7 +1029,7 @@ function hasUnauthorizedUrl(message, guild) {
 }
 
 function containsUrlShortener(content) {
-  // Regular expression to match URLs
+  // First check for URLs with protocol
   const urlRegex = /https?:\/\/([^\/\s]+)(\/[^\s]*)?/gi;
   let match;
   
@@ -819,12 +1043,24 @@ function containsUrlShortener(content) {
     }
   }
   
-  // Also check for shortened links without http/https
+  // For URL shorteners without protocol, be more careful
   for (const shortener of URL_SHORTENERS) {
-    const shortenerRegex = new RegExp(`\\b${shortener}\\b`, 'i');
+    // This pattern requires word boundaries on both sides or the beginning of a line
+    // and looks for domain-like patterns (e.g., bit.ly/xyz), not just the text
+    const shortenerRegex = new RegExp(`(?:^|\\s)${shortener}(?:/[^\\s]+)?(?:\\s|$)`, 'i');
     if (shortenerRegex.test(content)) {
-      console.log(`URL shortener detected without protocol: ${shortener}`);
-      return true;
+      // Double-check with a more restrictive pattern for shorteners that could be common words
+      if (['to', 'is', 'us', 'id'].includes(shortener.split('.')[0])) {
+        // For these, require the domain pattern to be more domain-like
+        const stricterRegex = new RegExp(`(?:^|\\s)${shortener}/[^\\s]+(?:\\s|$)`, 'i');
+        if (stricterRegex.test(content)) {
+          console.log(`URL shortener detected without protocol: ${shortener}`);
+          return true;
+        }
+      } else {
+        console.log(`URL shortener detected without protocol: ${shortener}`);
+        return true;
+      }
     }
   }
   
@@ -900,14 +1136,37 @@ async function handleUnauthorizedUrl(message) {
   try {
     const userId = message.author.id;
     const userName = message.author.tag;
-    
-    // Delete the message with the unauthorized URL
-    await message.delete();
-    
-    dailyInterceptCount++; //keep track of daily intercepts
+    const messageId = message.id;
+    const content = message.content;
 
+    // Determine the URL type for reporting
+    const hasShortenerUrl = containsUrlShortener(content);
+    const hasDiscordInvite = /discord\.gg[\\/]|discord\.com\/invite[\\/]/i.test(content);
+    const urlObfuscation = detectUrlObfuscation(content);
+
+    dailyInterceptCount++;
+    console.log(`Intercepting unauthorized URL (count: ${dailyInterceptCount}): ${content.substring(0, 100)}...`);
+    
+    // First check if message still exists and is deletable
+    try {
+      // Try to fetch the message to ensure it exists
+      const fetchedMessage = await message.channel.messages.fetch(messageId);
+      if (fetchedMessage.deletable) {
+        await fetchedMessage.delete();
+        console.log(`Successfully deleted message ${messageId} with unauthorized URL`);
+      } else {
+        console.log(`Message ${messageId} is not deletable`);
+        return false;
+      }
+    } catch (fetchError) {
+      // Message likely doesn't exist anymore
+      console.log(`Message ${messageId} could not be fetched, likely already deleted: ${fetchError.message}`);
+      return false;
+    }
+    
     // Simple notification message
-    const dmContent = `🌱 Hey ${message.author.username}, your message in #${message.channel.name} was removed due to an unauthorized URL.\n\n Only links from garden.finance, x.com, and internal Discord links are allowed. If you need to share something else, raise a ticket and our mods will help you🌸.`;    
+    const dmContent = `🌱 Hey ${message.author.username}, your message in #${message.channel.name} was removed due to an unauthorized URL.\n\n Only links from garden.finance, x.com, and internal Discord links are allowed. If you need to share something else, raise a ticket and our mods will help you 🌸.`;    
+    
     // Send DM to user
     try {
       await message.author.send({ content: dmContent });
@@ -916,25 +1175,40 @@ async function handleUnauthorizedUrl(message) {
       console.log(`Failed to send DM to ${userName}: ${dmError.message}`);
       
       // Send a brief notice in the channel that will be deleted shortly
-      const tempMsg = await message.channel.send({
-        content: `<@${userId}> Your message with an unauthorized URL was removed. Please check server rules about acceptable links.`,
-        allowedMentions: { users: [userId] }
-      });
-      
-      // Delete the notice after a short delay
-      setTimeout(() => {
-        if (tempMsg.deletable) {
-          tempMsg.delete().catch(err => console.error('Failed to delete temp message:', err));
-        }
-      }, 8000); // Delete after 8 seconds
+      try {
+        const tempMsg = await message.channel.send({
+          content: `<@${userId}> Your message with an unauthorized URL was removed. Please check server rules about acceptable links.`,
+          allowedMentions: { users: [userId] }
+        });
+        
+        // Delete the notice after a short delay
+        setTimeout(() => {
+          if (tempMsg && tempMsg.deletable) {
+            tempMsg.delete().catch(err => console.error(`Failed to delete temp message ${tempMsg.id}: ${err.message}`));
+          }
+        }, 8000); // Delete after 8 seconds
+      } catch (tempMsgError) {
+        console.error(`Failed to send temporary notification: ${tempMsgError.message}`);
+      }
     }
     
     // Log the action
     console.log(`Unauthorized URL removed from ${userName} (${userId})`);
+
+    if (global.updateReportData) {
+      // Determine the type of scam
+      let scamType = 'otherScams';
+      if (hasShortenerUrl) scamType = 'urlShorteners';
+      else if (hasDiscordInvite) scamType = 'discordInvites';  
+      else if (urlObfuscation.isObfuscated) scamType = 'encodedUrls';
+      
+      // Update the report data
+      global.updateReportData(scamType, message.author.id);
+    }
     
     return true;
   } catch (error) {
-    console.error('Failed to handle unauthorized URL:', error);
+    console.error(`Failed to handle unauthorized URL (message ${message.id}): ${error.message}`);
     return false;
   }
 }
@@ -950,41 +1224,232 @@ function hasProtectedRole(member) {
 }
 
 function setupSimpleDailyReport(client) {
-  // Check every hour if we should send a report
+  // Store report data beyond just count
+  let reportData = {
+    dailyInterceptCount: 0,
+    lastReportTime: new Date().setHours(0, 0, 0, 0),
+    scamTypes: {
+      urlShorteners: 0,
+      discordInvites: 0,
+      encodedUrls: 0,
+      otherScams: 0
+    },
+    topScammers: new Map() // Track users with most violations
+  };
+
+  // Reset report data
+  function resetReportData() {
+    reportData.dailyInterceptCount = 0;
+    reportData.scamTypes = {
+      urlShorteners: 0,
+      discordInvites: 0, 
+      encodedUrls: 0,
+      otherScams: 0
+    };
+    reportData.topScammers = new Map();
+  }
+
+  //Daily report
+  function setupSimpleDailyReport(client) {
+    // Store report data beyond just count
+    let reportData = {
+      dailyInterceptCount: 0,
+      lastReportTime: new Date().setHours(0, 0, 0, 0),
+      scamTypes: {
+        urlShorteners: 0,
+        discordInvites: 0,
+        encodedUrls: 0,
+        otherScams: 0
+      },
+      topScammers: new Map() // Track users with most violations
+    };
+  
+    // Reset report data
+    function resetReportData() {
+      reportData.dailyInterceptCount = 0;
+      reportData.scamTypes = {
+        urlShorteners: 0,
+        discordInvites: 0, 
+        encodedUrls: 0,
+        otherScams: 0
+      };
+      reportData.topScammers = new Map();
+    }
+  
+    // Create more detailed report
+    async function sendDetailedReport(guild) {
+      try {
+        const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
+        if (!reportChannel) {
+          console.error(`Report channel with ID ${SCAM_CHANNEL_ID} not found`);
+          return;
+        }
+  
+        // For testing purposes, use current time instead of yesterday
+        const now = new Date();
+        const formattedDate = now.toISOString().split('T')[0];
+        const formattedTime = now.toTimeString().split(' ')[0];
+  
+        // Handle no interceptions case
+        if (reportData.dailyInterceptCount === 0) {
+          await reportChannel.send({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
+                .setColor('#00FF00')  // Green color for all-clear
+                .setDescription(`No scam attempts intercepted! 🎉`)
+                .setFooter({ text: 'Garden Security Bot - TEST MODE' })
+                .setTimestamp()
+            ]
+          });
+          
+          console.log(`Sent empty test report at ${formattedTime}`);
+          return;
+        }
+  
+        // Create a more detailed embed report
+        const embed = new EmbedBuilder()
+          .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
+          .setColor('#FF0000')
+          .setDescription(`Total interceptions: **${reportData.dailyInterceptCount}**`)
+          .addFields(
+            { 
+              name: 'URL Shorteners', 
+              value: reportData.scamTypes.urlShorteners.toString(), 
+              inline: true 
+            },
+            { 
+              name: 'Discord Invites', 
+              value: reportData.scamTypes.discordInvites.toString(), 
+              inline: true 
+            },
+            { 
+              name: 'Encoded URLs', 
+              value: reportData.scamTypes.encodedUrls.toString(), 
+              inline: true 
+            },
+            { 
+              name: 'Other Scams', 
+              value: reportData.scamTypes.otherScams.toString(), 
+              inline: true 
+            }
+          )
+          .setFooter({ text: 'Garden Security Bot - TEST MODE' })
+          .setTimestamp();
+  
+        // Add top offenders if any exist
+        if (reportData.topScammers.size > 0) {
+          const topOffenders = Array.from(reportData.topScammers.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([userId, count], index) => `${index + 1}. <@${userId}>: ${count} violation${count !== 1 ? 's' : ''}`)
+            .join('\n');
+  
+          if (topOffenders) {
+            embed.addFields({ name: 'Top Offenders', value: topOffenders });
+          }
+        } else {
+          // No repeat offenders
+          embed.addFields({ 
+            name: 'Top Offenders', 
+            value: 'No repeat offenders.' 
+          });
+        }
+  
+        // Send the embed report
+        await reportChannel.send({ embeds: [embed] });
+        
+        console.log(`Sent detailed test security report at ${formattedTime}`);
+      } catch (error) {
+        console.error('Error sending test report:', error);
+      }
+    }
+  
+    // Expose methods to update the statistics from elsewhere in the code
+    global.updateReportData = function(type, userId) {
+      reportData.dailyInterceptCount++;
+      
+      // Update scam type counters
+      if (type && reportData.scamTypes[type] !== undefined) {
+        reportData.scamTypes[type]++;
+      } else {
+        reportData.scamTypes.otherScams++;
+      }
+      
+      // Track user violations if userId is provided
+      if (userId) {
+        const currentCount = reportData.topScammers.get(userId) || 0;
+        reportData.topScammers.set(userId, currentCount + 1);
+      }
+      
+      console.log(`Report data updated: ${type} by user ${userId}`);
+    };
+  
+    // Check every 10 minutes for testing
+    const intervalId = setInterval(async () => {
+      try {
+        console.log('Running scheduled test report check...');
+        
+        // For testing purposes, always send a report
+        const guilds = client.guilds.cache;
+        if (guilds.size === 0) {
+          console.error('No guilds found in client cache');
+          return;
+        }
+        
+        const guild = guilds.first();
+        if (guild) {
+          console.log(`Found guild: ${guild.name}`);
+          await sendDetailedReport(guild);
+        } else {
+          console.error('Could not find a guild to send report to');
+        }
+      } catch (error) {
+        console.error('Error in report interval handler:', error);
+      }
+    }, 10 * 60 * 1000); // Check every 10 minutes
+  
+    // Store the interval ID so it can be cleared if needed
+    client.reportInterval = intervalId;
+    
+    console.log('Test reporting system initialized - will send reports every 10 minutes');
+    
+    return global.updateReportData; // Return the function to update stats
+  }
+  // Expose methods to update the statistics from elsewhere in the code
+  global.updateReportData = function(type, userId) {
+    reportData.dailyInterceptCount++;
+    
+    // Update scam type counters
+    if (type && reportData.scamTypes[type] !== undefined) {
+      reportData.scamTypes[type]++;
+    } else {
+      reportData.scamTypes.otherScams++;
+    }
+    
+    // Track user violations if userId is provided
+    if (userId) {
+      const currentCount = reportData.topScammers.get(userId) || 0;
+      reportData.topScammers.set(userId, currentCount + 1);
+    }
+  };
+
+  // Check every 10 minutes if we should send a report
   setInterval(async () => {
     const now = new Date();
     const todayMidnight = new Date().setHours(0, 0, 0, 0);
     
     // If it's a new day and we haven't reported yet
-    if (todayMidnight > lastReportTime) {
-      try {
-        // Get the guild
-        const guild = client.guilds.cache.first();
-        if (!guild) return;
-        
-        // Get the report channel
-        const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
-        if (!reportChannel) return;
-        
-        // Format the date for yesterday (UTC)
-        const yesterday = new Date(lastReportTime);
-        const formattedDate = yesterday.toISOString().split('T')[0];
-        
-        // Send the report with the date
-        await reportChannel.send(
-          `📊 **URL Filter Report for ${formattedDate} (UTC)**\n\nUnauthorized URLs intercepted: **${dailyInterceptCount}**`
-        );
-        
-        // Reset for the new day
-        lastReportTime = todayMidnight;
-        dailyInterceptCount = 0;
-        
-        console.log(`Sent URL report for ${formattedDate}`);
-      } catch (error) {
-        console.error('Error sending daily report:', error);
+    if (todayMidnight > reportData.lastReportTime) {
+      // Get the guild and send the report
+      const guild = client.guilds.cache.first();
+      if (guild) {
+        await sendDetailedReport(guild);
       }
     }
-  }, 60 * 60 * 1000); // Check once per hour
+  }, 10 * 60 * 1000); // Check every 10 minutes
+  
+  return global.updateReportData; // Return the function to update stats
 }
 
 module.exports = {

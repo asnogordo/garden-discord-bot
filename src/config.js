@@ -32,12 +32,12 @@ module.exports = {
   // Blockchain Configuration
   ARBISCAN_API_KEY: process.env.ARBISCAN_API_KEY,
   WEB3_PROVIDER: process.env.WEB3_PROVIDER || 'https://arb1.arbitrum.io/rpc',
-  TOKEN_ADDRESS: '0x86f65121804D2Cdbef79F9f072D4e0c2eEbABC08', //SEED
+  TOKEN_ADDRESS: '0x86f65121804D2Cdbef79F9f072D4e0c2eEbABC08', //SEED on arb
   STAKING_CONTRACT_ADDRESS: '0xe2239938ce088148b3ab398b2b77eedfcd9d1afc',
   UNISWAP_POOL_ADDRESS: '0xf9f588394ec5c3b05511368ce016de5fd3812446',
 
   // Bot Behavior Configuration
-  POLL_INTERVAL: 360000, // Poll every 360 seconds
+  POLL_INTERVAL: 900000, // Poll every 900 seconds
   LARGE_SWAP_AMOUNT: 15000,
   LARGE_STAKE_AMOUNT: 20999,
 
