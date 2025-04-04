@@ -918,16 +918,36 @@ function hasDeceptiveUrl(content) {
 
 // Add a new function to detect URL encoding and other obfuscation techniques
 function detectUrlObfuscation(content) {
-  // Check for percent encoding (URL encoding)
+  // First extract all URLs from the content
+  const urlMatches = content.match(urlPattern) || [];
+  
+  // Check each URL for allowed domains before running obfuscation checks
+  for (const url of urlMatches) {
+    const domainMatch = url.match(/https?:\/\/([^\/\s]+)/i);
+    if (domainMatch) {
+      const domain = domainMatch[1].toLowerCase();
+      // Check if domain is allowed
+      const isAllowed = ALLOWED_DOMAINS.some(allowedDomain => 
+        domain === allowedDomain || domain.endsWith('.' + allowedDomain)
+      );
+      
+      // If all URLs are from allowed domains, skip obfuscation checks
+      if (isAllowed) {
+        return {
+          hasUrlEncoding: false,
+          hasLineBreaksInUrl: false,
+          hasInvisibleChars: false,
+          hasUnusualChars: false,
+          isObfuscated: false
+        };
+      }
+    }
+  }
+  
+  // Only check for obfuscation if we have non-allowed domains
   const hasUrlEncoding = /%[0-9A-Fa-f]{2}/.test(content);
-  
-  // Check for line breaks or whitespace in URLs
   const hasLineBreaksInUrl = /https?:[\s\n\r]*\/[\s\n\r]*\//.test(content);
-  
-  // Check for zero-width spaces and other invisible characters
   const hasInvisibleChars = /https?:\/\/\S*[\u200B-\u200D\uFEFF\u2060\u180E]\S*/i.test(content);
-  
-  // Check for unusual character combinations in URLs
   const hasUnusualChars = /https?:\/\/[^\/\s]*[<>()\[\]{}\\|^`~]+[^\/\s]*/i.test(content);
 
   return {
