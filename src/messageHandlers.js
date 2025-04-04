@@ -123,11 +123,11 @@ const plainDomainPattern = /(?<![.@\w])((?:\w+\.)+(?:com|org|net|io|finance|xyz|
 const howToStakeOrClaim = /.*(?:how|where).*(?:(?:stake|staking|earn|claim).*(?:btc|bitcoin|rewards?|seed)|(?:btc|bitcoin|rewards?).*(?:stake|staking|earn|claim)|(?:get|receive).*(?:staking|staked).*(btc|bitcoin|rewards?)).*/i;
 const howToGetSeed = /(?:how|where).*(?:get|buy|purchase|acquire|swap for).*seed\??/i;
 const wenVote = /.*(wh?en) .*(vote|voting).*/i;
-const wenMoon = /.*(wh?en|where).*mo+n.*/i;
+const wenMoon = /.*(wh?en|where).*moon.*/i;
 const wenLambo = /.*(wh?en|where).*lambo.*/i;
 const wenNetwork = /.*wh?en\s+(optimism|op|binance|bnb|gnosis|avax|avalanche|sol|hyper|solana|monad|hyperliquid|hl).*/i;
 const meaningOfLife = /.*meaning of life.*/i;
-const contractAddress = /.*(contract|token) .*address.*/i;
+const contractAddress = /(?:.*(?:contract|token).*address.*)|(?:.*seed.*(?:contract|token|address).*)|(?:.*address.*(?:for|of).*seed.*)/i;
 const totalSupply = /.*(total|max|maximum|token|seed) supply.*/i;
 const wenDuneAnalytics = /.*(wh?en|where).*(dune|analytics).*/i;
 const wenDefillama = /.*(?:defi.?llama|defillama|tvl).*/i;
@@ -138,13 +138,12 @@ const swapIssues = /\b(?:swap(?:ping)?|exchange|convert(?:ing)?)\b(?!.*\b(?:no|r
 const claimingIssues = /\b(?:claim(?:ing)?)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:not?\s+work(?:ing)?|error|issue|problem|fail(?:ed|ing)?|stuck)\b/i;
 const transactionIssues = /\b(?:transaction|refund|sent|transfer|overpaid|payment)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone|to|is)\b).*\b(?:issue|problem|error|stuck|fail(?:ed|ing)?|missing|lost|pending)\b/i;
 const orderIssues = /\b(?:order)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:stuck|pending|fail(?:ed|ing)?|issue|problem|long time)\b/i;
-const gardenExplorer = /(?:\b(?:wh?en|where|how|can|does|do I|is|what|show|find|see|check|get|open|access|view|use|link to)(?:\s+\w+){0,5}\s+(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer|txs?|transaction\s*status|tx\s*status|transactions?))|(?:\b(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer)(?:\s+\w+){0,2}\s+(?:link|url|site|page|website))|(?:\bexplorer\b)|(?:\btx\s*link\b)/i;
+const gardenExplorer = /(?:wh?(?:ere|at|en)|how|can|do I|is|find|see|check|get|open|access|view|use|link to)(?:\s+\w+){0,5}\s+(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer)/i;
 const metricsAnalytics = /(?:how|where|what|which|can|is there).*(?:(?:check|see|find|view|get)\s+(?:garden|seed)?\s*(?:analytics|metrics|stats|statistics|volume|data|chart|graph|dashboard|numbers|tvl))|(?:defi.?llama|dune\s*analytics|explorer)/i;
 
 // GIF lists
 const wenMoonGifs = [
   'https://c.tenor.com/YZWhYF-xV4kAAAAd/when-moon-admin.gif',
-  'https://c.tenor.com/x-kqDAmw2NQAAAAC/parrot-party.gif',
   'https://c.tenor.com/R6Zf7aUegagAAAAd/lambo.gif',
   'https://c.tenor.com/1vXRFJxqIVgAAAAC/tenor.gif',
   'https://c.tenor.com/XIr-1aBPoCEAAAAC/tenor.gif'
@@ -919,16 +918,36 @@ function hasDeceptiveUrl(content) {
 
 // Add a new function to detect URL encoding and other obfuscation techniques
 function detectUrlObfuscation(content) {
-  // Check for percent encoding (URL encoding)
+  // First extract all URLs from the content
+  const urlMatches = content.match(urlPattern) || [];
+  
+  // Check each URL for allowed domains before running obfuscation checks
+  for (const url of urlMatches) {
+    const domainMatch = url.match(/https?:\/\/([^\/\s]+)/i);
+    if (domainMatch) {
+      const domain = domainMatch[1].toLowerCase();
+      // Check if domain is allowed
+      const isAllowed = ALLOWED_DOMAINS.some(allowedDomain => 
+        domain === allowedDomain || domain.endsWith('.' + allowedDomain)
+      );
+      
+      // If all URLs are from allowed domains, skip obfuscation checks
+      if (isAllowed) {
+        return {
+          hasUrlEncoding: false,
+          hasLineBreaksInUrl: false,
+          hasInvisibleChars: false,
+          hasUnusualChars: false,
+          isObfuscated: false
+        };
+      }
+    }
+  }
+  
+  // Only check for obfuscation if we have non-allowed domains
   const hasUrlEncoding = /%[0-9A-Fa-f]{2}/.test(content);
-  
-  // Check for line breaks or whitespace in URLs
   const hasLineBreaksInUrl = /https?:[\s\n\r]*\/[\s\n\r]*\//.test(content);
-  
-  // Check for zero-width spaces and other invisible characters
   const hasInvisibleChars = /https?:\/\/\S*[\u200B-\u200D\uFEFF\u2060\u180E]\S*/i.test(content);
-  
-  // Check for unusual character combinations in URLs
   const hasUnusualChars = /https?:\/\/[^\/\s]*[<>()\[\]{}\\|^`~]+[^\/\s]*/i.test(content);
 
   return {

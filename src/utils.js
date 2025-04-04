@@ -20,14 +20,17 @@ function helloMsgReply(msg) {
   return `${normalized[0].toUpperCase()}${normalized.substring(1)}`;
 }
 
+//rng pick from list
 function pickFromList(list) {
-  let count = -1;
+  let lastIndex = -1;
   return () => {
-    count += 1;
-    if (count > list.length - 1) {
-      count = 0;
-    }
-    return list[count];
+    let randomIndex;
+    do {
+      randomIndex = Math.floor(Math.random() * list.length);
+    } while (list.length > 1 && randomIndex === lastIndex);
+    
+    lastIndex = randomIndex;
+    return list[randomIndex];
   };
 }
 
