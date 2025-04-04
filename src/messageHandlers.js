@@ -127,7 +127,7 @@ const wenMoon = /.*(wh?en|where).*moon.*/i;
 const wenLambo = /.*(wh?en|where).*lambo.*/i;
 const wenNetwork = /.*wh?en\s+(optimism|op|binance|bnb|gnosis|avax|avalanche|sol|hyper|solana|monad|hyperliquid|hl).*/i;
 const meaningOfLife = /.*meaning of life.*/i;
-const contractAddress = /.*(contract|token) .*address.*/i;
+const contractAddress = /(?:.*(?:contract|token).*address.*)|(?:.*seed.*(?:contract|token|address).*)|(?:.*address.*(?:for|of).*seed.*)/i;
 const totalSupply = /.*(total|max|maximum|token|seed) supply.*/i;
 const wenDuneAnalytics = /.*(wh?en|where).*(dune|analytics).*/i;
 const wenDefillama = /.*(?:defi.?llama|defillama|tvl).*/i;
@@ -138,7 +138,7 @@ const swapIssues = /\b(?:swap(?:ping)?|exchange|convert(?:ing)?)\b(?!.*\b(?:no|r
 const claimingIssues = /\b(?:claim(?:ing)?)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:not?\s+work(?:ing)?|error|issue|problem|fail(?:ed|ing)?|stuck)\b/i;
 const transactionIssues = /\b(?:transaction|refund|sent|transfer|overpaid|payment)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone|to|is)\b).*\b(?:issue|problem|error|stuck|fail(?:ed|ing)?|missing|lost|pending)\b/i;
 const orderIssues = /\b(?:order)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:stuck|pending|fail(?:ed|ing)?|issue|problem|long time)\b/i;
-const gardenExplorer = /(?:\b(?:wh?en|where|how|can|does|do I|is|what|show|find|see|check|get|open|access|view|use|link to)(?:\s+\w+){0,5}\s+(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer|txs?|transaction\s*status|tx\s*status|transactions?))|(?:\b(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer)(?:\s+\w+){0,2}\s+(?:link|url|site|page|website))|(?:\bexplorer\b)|(?:\btx\s*link\b)/i;
+const gardenExplorer = /(?:wh?(?:ere|at|en)|how|can|do I|is|find|see|check|get|open|access|view|use|link to)(?:\s+\w+){0,5}\s+(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer)/i;
 const metricsAnalytics = /(?:how|where|what|which|can|is there).*(?:(?:check|see|find|view|get)\s+(?:garden|seed)?\s*(?:analytics|metrics|stats|statistics|volume|data|chart|graph|dashboard|numbers|tvl))|(?:defi.?llama|dune\s*analytics|explorer)/i;
 
 // GIF lists
