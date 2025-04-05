@@ -1243,59 +1243,6 @@ function hasProtectedRole(member) {
   return PROTECTED_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
 }
 
-function setupSimpleDailyReport(client) {
-  // Store report data beyond just count
-  let reportData = {
-    dailyInterceptCount: 0,
-    lastReportTime: new Date().setHours(0, 0, 0, 0),
-    scamTypes: {
-      urlShorteners: 0,
-      discordInvites: 0,
-      encodedUrls: 0,
-      otherScams: 0
-    },
-    topScammers: new Map() // Track users with most violations
-  };
-
-  // Reset report data
-  function resetReportData() {
-    reportData.dailyInterceptCount = 0;
-    reportData.scamTypes = {
-      urlShorteners: 0,
-      discordInvites: 0, 
-      encodedUrls: 0,
-      otherScams: 0
-    };
-    reportData.topScammers = new Map();
-  }
-
-  //Daily report
-  function setupSimpleDailyReport(client) {
-    // Store report data beyond just count
-    let reportData = {
-      dailyInterceptCount: 0,
-      lastReportTime: new Date().setHours(0, 0, 0, 0),
-      scamTypes: {
-        urlShorteners: 0,
-        discordInvites: 0,
-        encodedUrls: 0,
-        otherScams: 0
-      },
-      topScammers: new Map() // Track users with most violations
-    };
-  
-    // Reset report data
-    function resetReportData() {
-      reportData.dailyInterceptCount = 0;
-      reportData.scamTypes = {
-        urlShorteners: 0,
-        discordInvites: 0, 
-        encodedUrls: 0,
-        otherScams: 0
-      };
-      reportData.topScammers = new Map();
-    }
-  
     // Create more detailed report
     async function sendDetailedReport(guild) {
       try {
@@ -1384,93 +1331,90 @@ function setupSimpleDailyReport(client) {
         console.error('Error sending test report:', error);
       }
     }
-  
-    // Expose methods to update the statistics from elsewhere in the code
-    global.updateReportData = function(type, userId) {
-      reportData.dailyInterceptCount++;
-      
-      // Update scam type counters
-      if (type && reportData.scamTypes[type] !== undefined) {
-        reportData.scamTypes[type]++;
-      } else {
-        reportData.scamTypes.otherScams++;
-      }
-      
-      // Track user violations if userId is provided
-      if (userId) {
-        const currentCount = reportData.topScammers.get(userId) || 0;
-        reportData.topScammers.set(userId, currentCount + 1);
-      }
-      
-      console.log(`Report data updated: ${type} by user ${userId}`);
-    };
-  
-    // Check every 10 minutes for testing
-    const intervalId = setInterval(async () => {
-      try {
-        console.log('Running scheduled test report check...');
-        
-        // For testing purposes, always send a report
-        const guilds = client.guilds.cache;
-        if (guilds.size === 0) {
-          console.error('No guilds found in client cache');
-          return;
-        }
-        
-        const guild = guilds.first();
-        if (guild) {
-          console.log(`Found guild: ${guild.name}`);
-          await sendDetailedReport(guild);
-        } else {
-          console.error('Could not find a guild to send report to');
-        }
-      } catch (error) {
-        console.error('Error in report interval handler:', error);
-      }
-    }, 10 * 60 * 1000); // Check every 10 minutes
-  
-    // Store the interval ID so it can be cleared if needed
-    client.reportInterval = intervalId;
-    
-    console.log('Test reporting system initialized - will send reports every 10 minutes');
-    
-    return global.updateReportData; // Return the function to update stats
-  }
-  // Expose methods to update the statistics from elsewhere in the code
-  global.updateReportData = function(type, userId) {
-    reportData.dailyInterceptCount++;
-    
-    // Update scam type counters
-    if (type && reportData.scamTypes[type] !== undefined) {
-      reportData.scamTypes[type]++;
-    } else {
-      reportData.scamTypes.otherScams++;
-    }
-    
-    // Track user violations if userId is provided
-    if (userId) {
-      const currentCount = reportData.topScammers.get(userId) || 0;
-      reportData.topScammers.set(userId, currentCount + 1);
-    }
-  };
 
-  // Check every 10 minutes if we should send a report
-  setInterval(async () => {
-    const now = new Date();
-    const todayMidnight = new Date().setHours(0, 0, 0, 0);
+    function setupSimpleDailyReport(client) {
+      // Store report data beyond just count
+      let reportData = {
+        dailyInterceptCount: 0,
+        lastReportTime: new Date().setHours(0, 0, 0, 0) - 86400000, // Start with yesterday
+        scamTypes: {
+          urlShorteners: 0,
+          discordInvites: 0,
+          encodedUrls: 0,
+          otherScams: 0
+        },
+        topScammers: new Map()
+      };
     
-    // If it's a new day and we haven't reported yet
-    if (todayMidnight > reportData.lastReportTime) {
-      // Get the guild and send the report
-      const guild = client.guilds.cache.first();
-      if (guild) {
-        await sendDetailedReport(guild);
+      // Reset report data function
+      function resetReportData() {
+        reportData.dailyInterceptCount = 0;
+        reportData.scamTypes = {
+          urlShorteners: 0,
+          discordInvites: 0, 
+          encodedUrls: 0,
+          otherScams: 0
+        };
+        reportData.topScammers = new Map();
       }
+    
+      // Update stats function
+      global.updateReportData = function(type, userId) {
+        reportData.dailyInterceptCount++;
+        
+        // Update scam type counters
+        if (type && reportData.scamTypes[type] !== undefined) {
+          reportData.scamTypes[type]++;
+        } else {
+          reportData.scamTypes.otherScams++;
+        }
+        
+        // Track user violations if userId is provided
+        if (userId) {
+          const currentCount = reportData.topScammers.get(userId) || 0;
+          reportData.topScammers.set(userId, currentCount + 1);
+        }
+        
+        console.log(`Report data updated: ${type} by user ${userId}`);
+      };
+    
+      // Check once per hour if we should send a report
+      const intervalId = setInterval(async () => {
+        try {
+          console.log('Running hourly report check...');
+          const now = new Date();
+          const todayMidnight = new Date().setHours(0, 0, 0, 0);
+          
+          console.log(`Current time: ${now.toISOString()}`);
+          console.log(`Today midnight: ${new Date(todayMidnight).toISOString()}`);
+          console.log(`Last report time: ${new Date(reportData.lastReportTime).toISOString()}`);
+          
+          // If it's a new day and we haven't reported yet
+          if (todayMidnight > reportData.lastReportTime) {
+            console.log("New day detected, sending report...");
+            const guild = client.guilds.cache.first();
+            
+            if (guild) {
+              console.log(`Found guild: ${guild.name}`);
+              await sendDetailedReport(guild);
+              
+              // Update last report time AFTER sending report
+              reportData.lastReportTime = todayMidnight;
+              resetReportData();
+            }
+          } else {
+            console.log("Not time to send report yet");
+          }
+        } catch (error) {
+          console.error('Error in report interval handler:', error);
+        }
+      }, 60 * 60 * 1000); // Check every hour
+      
+      client.reportInterval = intervalId;
+      console.log('Security reporting system initialized - will send reports daily at midnight UTC');
+      
+      return global.updateReportData;
     }
-  }, 10 * 60 * 1000); // Check every 10 minutes
-  
-  return global.updateReportData; // Return the function to update stats
-}
 
 module.exports = {
   handleMessage,
