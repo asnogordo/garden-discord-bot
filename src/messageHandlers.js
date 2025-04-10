@@ -29,7 +29,11 @@ const ALLOWED_DOMAINS = [
   'media.discordapp.net', // Discord's CDN for attachments
   'cdn.discordapp.com',   // Discord's CDN
   'images-ext-1.discordapp.net',
-  'images-ext-2.discordapp.net'
+  'images-ext-2.discordapp.net',
+  'soundcloud.com',
+  'i.scdn.co',
+  'p.scdn.co',
+  'spotify.com'
 ];
 
 const URL_SHORTENERS = [
@@ -891,6 +895,24 @@ function isChannelExcluded(channel) {
 
 // Enhanced URL detection function
 function hasDeceptiveUrl(content) {
+  const urlMatches = content.match(urlPattern) || [];
+  
+  // Check each URL for allowed domains before running deceptive checks
+  for (const url of urlMatches) {
+    const domainMatch = url.match(/https?:\/\/([^\/\s]+)/i);
+    if (domainMatch) {
+      const domain = domainMatch[1].toLowerCase();
+      // Check if domain is allowed
+      const isAllowed = ALLOWED_DOMAINS.some(allowedDomain => 
+        domain === allowedDomain || domain.endsWith('.' + allowedDomain)
+      );
+      
+      // If it's from an allowed domain, skip deceptive URL checks
+      if (isAllowed) {
+        return false;
+      }
+    }
+  }
   // Check for URLs disguised with zero-width spaces or other invisible characters
   const hasHiddenChars = /https?:\/\/\S*[\u200B-\u200D\uFEFF\u2060\u180E]\S*/i.test(content);
   
