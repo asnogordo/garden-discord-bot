@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { checkTransfers } = require('./transactionMonitor');
 const config = require('./config');
-const { handleMessage,celebratoryGifs,setupSimpleDailyReport } = require('./messageHandlers');
+const { handleMessage,celebratoryGifs } = require('./messageHandlers');
+const { setupReportingSystem } = require('./reportingSystem');
 const { REST, Routes } = require('discord.js');
 const { isAboveBaseRole, canBeModerated } = require('./utils');
 fs.writeFileSync('bot.pid', process.pid.toString());
@@ -56,7 +57,7 @@ let monitorIntervalId = null;
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}!`);
   monitorIntervalId = setInterval(() => checkTransfers(client), config.POLL_INTERVAL);
-  setupSimpleDailyReport(client);
+  setupReportingSystem(client);
 });
 
 client.on('messageCreate', handleMessage);

@@ -33,7 +33,12 @@ const ALLOWED_DOMAINS = [
   'soundcloud.com',
   'i.scdn.co',
   'p.scdn.co',
-  'spotify.com'
+  'spotify.com',
+  'youtube.com',
+  'youtu.be',
+  'www.youtube.com',
+  'youtube-nocookie.com',
+  'm.youtube.com'
 ];
 
 const URL_SHORTENERS = [
@@ -1354,11 +1359,11 @@ function hasProtectedRole(member) {
       }
     }
 
-    function setupSimpleDailyReport(client) {
-      // Store report data beyond just count
-      let reportData = {
-        dailyInterceptCount: 0,
-        lastReportTime: new Date().setHours(0, 0, 0, 0) - 86400000, // Start with yesterday
+    function setupReportingSystem(client) {
+      // Store report data
+      const reportData = {
+        interceptCount: 0,
+        lastReportTime: Date.now(), // Start from now
         scamTypes: {
           urlShorteners: 0,
           discordInvites: 0,
@@ -1368,21 +1373,24 @@ function hasProtectedRole(member) {
         topScammers: new Map()
       };
     
+      console.log(`Reporting system initialized at ${new Date(reportData.lastReportTime).toISOString()}`);
+      
       // Reset report data function
       function resetReportData() {
-        reportData.dailyInterceptCount = 0;
+        reportData.interceptCount = 0;
         reportData.scamTypes = {
           urlShorteners: 0,
           discordInvites: 0, 
           encodedUrls: 0,
           otherScams: 0
         };
-        reportData.topScammers = new Map();
+        reportData.topScammers.clear();
+        console.log(`Report data reset at ${new Date().toISOString()}`);
       }
     
-      // Update stats function
+      // Update stats function - expose this globally
       global.updateReportData = function(type, userId) {
-        reportData.dailyInterceptCount++;
+        reportData.interceptCount++;
         
         // Update scam type counters
         if (type && reportData.scamTypes[type] !== undefined) {
@@ -1397,43 +1405,135 @@ function hasProtectedRole(member) {
           reportData.topScammers.set(userId, currentCount + 1);
         }
         
-        console.log(`Report data updated: ${type} by user ${userId}`);
+        console.log(`Report data updated: ${type} by user ${userId || 'unknown'}, total count: ${reportData.interceptCount}`);
       };
     
-      // Check once per hour if we should send a report
+      // Send detailed report function
+      async function sendDetailedReport(guild) {
+        try {
+          const { EmbedBuilder } = require('discord.js');
+          const config = require('./config');
+          
+          const reportChannel = await guild.channels.fetch(config.SCAM_CHANNEL_ID);
+          if (!reportChannel) {
+            console.error(`Report channel with ID ${config.SCAM_CHANNEL_ID} not found`);
+            return;
+          }
+    
+          // Current date/time formatting
+          const now = new Date();
+          const formattedDate = now.toISOString().split('T')[0];
+          const formattedTime = now.toTimeString().split(' ')[0];
+    
+          // Handle no interceptions case
+          if (reportData.interceptCount === 0) {
+            await reportChannel.send({
+              embeds: [
+                new EmbedBuilder()
+                  .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
+                  .setColor('#00FF00')  // Green color for all-clear
+                  .setDescription(`No scam attempts intercepted in the last 4 hours! 🎉`)
+                  .setFooter({ text: 'Garden Security Bot - TEST MODE (4-hour interval)' })
+                  .setTimestamp()
+              ]
+            });
+            
+            console.log(`Sent empty report at ${formattedTime}`);
+            return;
+          }
+    
+          // Create a detailed embed report
+          const embed = new EmbedBuilder()
+            .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
+            .setColor('#FF0000')
+            .setDescription(`Total interceptions in the last 4 hours: **${reportData.interceptCount}**`)
+            .addFields(
+              { 
+                name: 'URL Shorteners', 
+                value: reportData.scamTypes.urlShorteners.toString(), 
+                inline: true 
+              },
+              { 
+                name: 'Discord Invites', 
+                value: reportData.scamTypes.discordInvites.toString(), 
+                inline: true 
+              },
+              { 
+                name: 'Encoded URLs', 
+                value: reportData.scamTypes.encodedUrls.toString(), 
+                inline: true 
+              },
+              { 
+                name: 'Other Scams', 
+                value: reportData.scamTypes.otherScams.toString(), 
+                inline: true 
+              }
+            )
+            .setFooter({ text: 'Garden Security Bot - TEST MODE (4-hour interval)' })
+            .setTimestamp();
+    
+          // Add top offenders if any exist
+          if (reportData.topScammers.size > 0) {
+            const topOffenders = Array.from(reportData.topScammers.entries())
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 5)
+              .map(([userId, count], index) => `${index + 1}. <@${userId}>: ${count} violation${count !== 1 ? 's' : ''}`)
+              .join('\n');
+    
+            if (topOffenders) {
+              embed.addFields({ name: 'Top Offenders', value: topOffenders });
+            }
+          } else {
+            // No repeat offenders
+            embed.addFields({ 
+              name: 'Top Offenders', 
+              value: 'No repeat offenders.' 
+            });
+          }
+    
+          // Send the embed report
+          await reportChannel.send({ embeds: [embed] });
+          console.log(`Sent detailed security report at ${formattedTime}`);
+        } catch (error) {
+          console.error('Error sending report:', error);
+        }
+      }
+    
+      // Run reports every 4 hours
+      const REPORT_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
+      
       const intervalId = setInterval(async () => {
         try {
-          console.log('Running hourly report check...');
-          const now = new Date();
-          const todayMidnight = new Date().setHours(0, 0, 0, 0);
+          const now = Date.now();
+          const guild = client.guilds.cache.first();
           
-          console.log(`Current time: ${now.toISOString()}`);
-          console.log(`Today midnight: ${new Date(todayMidnight).toISOString()}`);
-          console.log(`Last report time: ${new Date(reportData.lastReportTime).toISOString()}`);
+          if (!guild) {
+            console.error("No guild found");
+            return;
+          }
           
-          // If it's a new day and we haven't reported yet
-          if (todayMidnight > reportData.lastReportTime) {
-            console.log("New day detected, sending report...");
-            const guild = client.guilds.cache.first();
+          console.log(`Running report check at: ${new Date(now).toISOString()}`);
+          console.log(`Time since last report: ${(now - reportData.lastReportTime) / 60000} minutes`);
+          
+          // If it's been approximately 4 hours since the last report
+          if (now - reportData.lastReportTime >= REPORT_INTERVAL) {
+            console.log("4 hours elapsed, sending report...");
             
-            if (guild) {
-              console.log(`Found guild: ${guild.name}`);
-              await sendDetailedReport(guild);
-              
-              // Update last report time AFTER sending report
-              reportData.lastReportTime = todayMidnight;
-              resetReportData();
-            }
+            await sendDetailedReport(guild);
+            
+            // Update last report time and reset data AFTER sending report
+            reportData.lastReportTime = now;
+            resetReportData();
           } else {
             console.log("Not time to send report yet");
           }
         } catch (error) {
           console.error('Error in report interval handler:', error);
         }
-      }, 60 * 60 * 1000); // Check every hour
+      }, 15 * 60 * 1000); // Check every 15 minutes
       
       client.reportInterval = intervalId;
-      console.log('Security reporting system initialized - will send reports daily at midnight UTC');
+      console.log('Security reporting system initialized - will send reports every 4 hours');
       
       return global.updateReportData;
     }
@@ -1445,5 +1545,5 @@ module.exports = {
   quarantineMessage,
   celebratoryGifs,
   suspiciousUserThreads,
-  setupSimpleDailyReport
+  setupReportingSystem 
 };
