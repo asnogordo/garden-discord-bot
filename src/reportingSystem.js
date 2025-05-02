@@ -74,8 +74,8 @@ function setupReportingSystem(client) {
             new EmbedBuilder()
               .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
               .setColor('#00FF00')  // Green color for all-clear
-              .setDescription(`No scam attempts intercepted in the last 4 hours! 🎉`)
-              .setFooter({ text: 'Garden Security Bot - TEST MODE (4-hour interval)' })
+              .setDescription(`No scam attempts intercepted in the last 6 hours! 🎉`)
+              .setFooter({ text: 'Garden Security Bot - TEST MODE (6-hour interval)' })
               .setTimestamp()
           ]
         });
@@ -88,7 +88,7 @@ function setupReportingSystem(client) {
       const embed = new EmbedBuilder()
         .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
         .setColor('#FF0000')
-        .setDescription(`Total interceptions in the last 4 hours: **${reportData.interceptCount}**`)
+        .setDescription(`Total interceptions in the last 6 hours: **${reportData.interceptCount}**`)
         .addFields(
           { 
             name: 'URL Shorteners', 
@@ -111,7 +111,7 @@ function setupReportingSystem(client) {
             inline: true 
           }
         )
-        .setFooter({ text: 'Garden Security Bot - TEST MODE (4-hour interval)' })
+        .setFooter({ text: 'Garden Security Bot - TEST MODE (6-hour interval)' })
         .setTimestamp();
 
       // Add top offenders if any exist
@@ -141,8 +141,8 @@ function setupReportingSystem(client) {
     }
   }
 
-  // Run reports every 4 hours
-  const REPORT_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
+  // Run reports every 6 hours
+  const REPORT_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
   
   const intervalId = setInterval(async () => {
     try {
@@ -157,9 +157,9 @@ function setupReportingSystem(client) {
       console.log(`Running report check at: ${new Date(now).toISOString()}`);
       console.log(`Time since last report: ${(now - reportData.lastReportTime) / 60000} minutes`);
       
-      // If it's been approximately 4 hours since the last report
+      // If it's been approximately 6 hours since the last report
       if (now - reportData.lastReportTime >= REPORT_INTERVAL) {
-        console.log("4 hours elapsed, sending report...");
+        console.log("6 hours elapsed, sending report...");
         
         await sendDetailedReport(guild);
         
@@ -175,7 +175,7 @@ function setupReportingSystem(client) {
   }, 15 * 60 * 1000); // Check every 15 minutes
   
   client.reportInterval = intervalId;
-  console.log('Security reporting system initialized - will send reports every 4 hours');
+  console.log('Security reporting system initialized - will send reports every 6 hours');
   
   return global.updateReportData;
 }

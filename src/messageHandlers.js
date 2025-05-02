@@ -634,7 +634,8 @@ async function quarantineMessage(message, channelIds) {
       } else if (detectUrlObfuscation(content).isObfuscated) {
         scamType = 'encodedUrls';
       }
-      global.updateReportData(scamType, author.id);
+      
+      global.updateReportData(scamType, author.id, member.displayName || author.username);
     }
 
     console.log(`Quarantined message from ${author.tag} in ${channelIds.size} channel(s).`);
@@ -1249,8 +1250,8 @@ async function handleUnauthorizedUrl(message) {
       else if (hasDiscordInvite) scamType = 'discordInvites';  
       else if (urlObfuscation.isObfuscated) scamType = 'encodedUrls';
       
-      // Update the report data
-      global.updateReportData(scamType, message.author.id);
+      const displayName = message.member?.displayName || message.author.username;
+      global.updateReportData(scamType, message.author.id, displayName);
     }
     
     return true;
