@@ -56,8 +56,14 @@ let monitorIntervalId = null;
 
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}!`);
+  
+  // Start the monitoring interval for transactions
   monitorIntervalId = setInterval(() => checkTransfers(client), config.POLL_INTERVAL);
+  
+  // Set up the reporting system
   setupReportingSystem(client);
+  
+  console.log('Bot startup complete. Initial security scan will run in 5 seconds...');
 });
 
 client.on('messageCreate', handleMessage);
