@@ -32,7 +32,7 @@ function setupReportingSystem(client) {
   }
 
   // Update stats function - expose this globally
-  global.updateReportData = function(type, userId) {
+  global.updateReportData = function(type, userId, displayName = null) {
     reportData.interceptCount++;
     
     // Update scam type counters
@@ -44,8 +44,17 @@ function setupReportingSystem(client) {
     
     // Track user violations if userId is provided
     if (userId) {
-      const currentCount = reportData.topScammers.get(userId) || 0;
-      reportData.topScammers.set(userId, currentCount + 1);
+      const currentData = reportData.topScammers.get(userId) || { count: 0, displayName: null };
+      
+      // Update count
+      currentData.count += 1;
+      
+      // Update display name if provided
+      if (displayName) {
+        currentData.displayName = displayName;
+      }
+      
+      reportData.topScammers.set(userId, currentData);
     }
     
     console.log(`Report data updated: ${type} by user ${userId || 'unknown'}, total count: ${reportData.interceptCount}`);
@@ -117,9 +126,14 @@ function setupReportingSystem(client) {
       // Add top offenders if any exist
       if (reportData.topScammers.size > 0) {
         const topOffenders = Array.from(reportData.topScammers.entries())
-          .sort((a, b) => b[1] - a[1])
+          .sort((a, b) => b[1].count - a[1].count)
           .slice(0, 5)
-          .map(([userId, count], index) => `${index + 1}. <@${userId}>: ${count} violation${count !== 1 ? 's' : ''}`)
+          .map(([userId, data], index) => {
+            const displayName = data.displayName || 'Unknown Name';
+            const count = data.count;
+            const violationText = count !== 1 ? 'violations' : 'violation';
+            return `${index + 1}. ${displayName} (<@${userId}>): ${count} ${violationText}`;
+          })
           .join('\n');
 
         if (topOffenders) {
