@@ -1546,5 +1546,8 @@ module.exports = {
   quarantineMessage,
   celebratoryGifs,
   suspiciousUserThreads,
-  setupReportingSystem 
+  setupReportingSystem,
+  detectUrlObfuscation,
+  hasDeceptiveUrl,
+  containsUrlShortener
 };
