@@ -79,84 +79,6 @@ const SUSPICIOUS_PATTERNS = {
 };
 
 // Updated reporting system that runs every 6 hours
-// Suspicious patterns for usernames and bios
-const SUSPICIOUS_PATTERNS = {
-  username: [
-    /announcement/i,
-    /support[-_]?team/i,
-    /admin[-_]?team/i,
-    /nft[-_]?support/i,
-    /crypto[-_]?support/i,
-    /garden[-_]?support/i,
-    /moderator[-_]?([0-9]{1,3})?$/i,
-    /mod[-_]?([0-9]{1,3})?$/i,
-    /helper[-_]?([0-9]{1,3})?$/i,
-    /staff[-_]?([0-9]{1,3})?$/i,
-    /📢/,
-    /🛡️/,
-    /💰/,
-    /💎/,
-    /🚀/,
-    /airdrop/i,
-    /giveway/i, // common misspelling
-    /giveaway/i,
-    /whitelist/i,
-    /presale/i,
-    /mint[-_]?now/i,
-    /freemint/i,
-    /claim/i,
-    /winners?/i,
-    /rewards?/i,
-    /\d{1,2}[k|m]?\s*usd/i, // patterns like "50k USD"
-    /earn\s*\$?\d+/i,
-    /nft[\s-]*drop/i,
-    /exclusive/i,
-    /vip/i,
-    /premium/i,
-    /verified/i,
-    /official/i,
-    /eth|btc|crypto/i,
-    /seed[-_]?token/i,
-    /garden[-_]?finance/i,
-    /web3/i,
-    /defi/i,
-    /NFTCommunity/i,
-    /CryptoNews/i,
-    /smartcontract/i,
-    /blockchain/i,
-    /metamask/i,
-    /trustwallet/i,
-    /ledger/i,
-    /marketing[-_]?team/i,
-    /partnership/i,
-    /ambassador/i,
-    /steward/i
-  ],
-  bio: [
-    /(?:dm|message|contact).*for.*(?:support|help|assistance)/i,
-    /(?:admin|moderator|support).*(?:here|available)/i,
-    /(?:reach|contact).*(?:for|via).*telegram/i,
-    /whatsapp.*[+]?\d{1,3}[-.\s]?\d{4,}/i,
-    /(?:click|visit).*links?.*bio/i,
-    /(?:buy|sell|trade).*crypto.*(?:dm|message)/i,
-    /(?:investment|trading).*(?:tips|signals|advice)/i,
-    /airdrop.*(?:winner|claim|eligible)/i,
-    /(?:verified|official).*(?:account|representative)/i,
-    /(?:job|work|hiring).*(?:remote|online)/i,
-    /(?:earn|make).*\$?\d+.*(?:daily|weekly|monthly)/i,
-    /(?:guaranteed|100%|profit|returns)/i,
-    /(?:nft|web3|defi).*(?:project|opportunity)/i,
-    /(?:pre[-]?sale|early[-]?access|exclusive)/i,
-    /(?:stake|staking).*(?:apy|returns)/i,
-    /telegram.*[:\s]@[\w_]+/i,
-    /twitter.*[:\s]@[\w_]+/i,
-    /discord.*[:\s][\w.-]+/i,
-    /(?:click|visit).*link/i,
-    /\b(?:scam|fraud|fake)\b/i // ironically, scammers sometimes mention these words
-  ]
-};
-
-// Updated reporting system that runs every 6 hours
 function setupReportingSystem(client) {
   // Store report data
   const reportData = {
@@ -168,8 +90,6 @@ function setupReportingSystem(client) {
       encodedUrls: 0,
       otherScams: 0
     },
-    topScammers: new Map(),
-    suspiciousUsers: new Map() // New: track suspicious users
     topScammers: new Map(),
     suspiciousUsers: new Map() // New: track suspicious users
   };
@@ -186,7 +106,6 @@ function setupReportingSystem(client) {
       otherScams: 0
     };
     reportData.topScammers.clear();
-    // Note: Don't clear suspiciousUsers to maintain monitoring across report cycles
     // Note: Don't clear suspiciousUsers to maintain monitoring across report cycles
     console.log(`Report data reset at ${new Date().toISOString()}`);
   }
@@ -585,18 +504,6 @@ function setupReportingSystem(client) {
       // Send the embed report
       await reportChannel.send({ embeds: [embed] });
       console.log(`Sent detailed security report at ${formattedTime}`);
-
-      // Send suspicious members report
-      await sendSuspiciousMembersReport(guild, reportChannel, false);
-
-      // Cleanup old suspicious user data (remove users who joined more than 7 days ago)
-      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-      for (const [userId, userData] of reportData.suspiciousUsers) {
-        if (userData.joinDate.getTime() < sevenDaysAgo) {
-          reportData.suspiciousUsers.delete(userId);
-        }
-      }
-
 
       // Send suspicious members report
       await sendSuspiciousMembersReport(guild, reportChannel, false);
