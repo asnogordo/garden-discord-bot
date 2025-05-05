@@ -1,7 +1,43 @@
-// reportingSystem.js
-const { EmbedBuilder, ChannelType, Collection  } = require('discord.js');
+// reportingSystem.js - Updated with focused bio link detection
+const { EmbedBuilder, ChannelType, Collection } = require('discord.js');
+const { containsUrlShortener, hasDeceptiveUrl, detectUrlObfuscation, ALLOWED_DOMAINS } = require('./messageHandlers');
 
-// Suspicious patterns for usernames and bios
+// Known scam domains and patterns
+const KNOWN_SCAM_PATTERNS = [
+  // Known scam shorteners
+  /snl\.ink/i,
+  /soo\.gd/i,
+  /qps\.ru/i,
+  /t\.me/i,
+  
+  // Discord scam variations
+  /disc[-]?ord[-]?app/i,
+  /d[1i]scord/i,
+  /disc[o0]rd/i,
+  /dis[c0]ord/i,
+  
+  // Support/Admin impersonation
+  /support[-_]?(?:desk|team|panel|ticket)/i,
+  /admin[-_]?(?:desk|team|panel|ticket)/i,
+  /moderator[-_]?(?:desk|team|panel)/i,
+  
+  // Financial/crypto scams
+  /(?:airdrop|giveaway|claim)[-_]?(?:now|here|portal)/i,
+  /crypto[-_]?(?:giveaway|support|recovery)/i,
+  
+  // Wallet/verification scams
+  /free[-_]?(?:tokens|crypto|nft)/i,
+  /verify[-_]?(?:wallet|account)/i,
+  /connect[-_]?wallet/i,
+  /metamask[-_]?(?:verify|support)/i,
+  
+  // Generic suspicious patterns
+  /(?:earn|make)[-_]?money/i,
+  /investment[-_]?(?:portal|platform)/i,
+  /trading[-_]?signals/i
+];
+
+// Suspicious patterns for usernames and bios (focused version)
 const SUSPICIOUS_PATTERNS = {
   username: [
     /announcement/i,
@@ -10,45 +46,10 @@ const SUSPICIOUS_PATTERNS = {
     /nft[-_]?support/i,
     /crypto[-_]?support/i,
     /garden[-_]?support/i,
-    /moderator[-_]?([0-9]{1,3})?$/i,
-    /mod[-_]?([0-9]{1,3})?$/i,
-    /helper[-_]?([0-9]{1,3})?$/i,
-    /staff[-_]?([0-9]{1,3})?$/i,
-    /📢/,
-    /🛡️/,
-    /💰/,
-    /💎/,
-    /🚀/,
-    /airdrop/i,
-    /giveway/i, // common misspelling
-    /giveaway/i,
-    /whitelist/i,
-    /presale/i,
-    /mint[-_]?now/i,
-    /freemint/i,
-    /claim/i,
-    /winners?/i,
-    /rewards?/i,
-    /\d{1,2}[k|m]?\s*usd/i, // patterns like "50k USD"
-    /earn\s*\$?\d+/i,
-    /nft[\s-]*drop/i,
-    /exclusive/i,
-    /vip/i,
-    /premium/i,
-    /verified/i,
-    /official/i,
-    /eth|btc|crypto/i,
-    /seed[-_]?token/i,
-    /garden[-_]?finance/i,
-    /web3/i,
-    /defi/i,
-    /NFTCommunity/i,
-    /CryptoNews/i,
-    /smartcontract/i,
-    /blockchain/i,
-    /metamask/i,
-    /trustwallet/i,
-    /ledger/i,
+    /moderator[-_]?(\d{1,3})?$/i,
+    /mod[-_]?(\d{1,3})?$/i,
+    /helper[-_]?(\d{1,3})?$/i,
+    /staff[-_]?(\d{1,3})?$/i,
     /marketing[-_]?team/i,
     /partnership/i,
     /ambassador/i,
@@ -59,31 +60,21 @@ const SUSPICIOUS_PATTERNS = {
     /(?:admin|moderator|support).*(?:here|available)/i,
     /(?:reach|contact).*(?:for|via).*telegram/i,
     /whatsapp.*[+]?\d{1,3}[-.\s]?\d{4,}/i,
-    /(?:click|visit).*links?.*bio/i,
-    /(?:buy|sell|trade).*crypto.*(?:dm|message)/i,
-    /(?:investment|trading).*(?:tips|signals|advice)/i,
-    /airdrop.*(?:winner|claim|eligible)/i,
-    /(?:verified|official).*(?:account|representative)/i,
-    /(?:job|work|hiring).*(?:remote|online)/i,
-    /(?:earn|make).*\$?\d+.*(?:daily|weekly|monthly)/i,
-    /(?:guaranteed|100%|profit|returns)/i,
-    /(?:nft|web3|defi).*(?:project|opportunity)/i,
-    /(?:pre[-]?sale|early[-]?access|exclusive)/i,
-    /(?:stake|staking).*(?:apy|returns)/i,
     /telegram.*[:\s]@[\w_]+/i,
-    /twitter.*[:\s]@[\w_]+/i,
     /discord.*[:\s][\w.-]+/i,
-    /(?:click|visit).*link/i,
-    /\b(?:scam|fraud|fake)\b/i // ironically, scammers sometimes mention these words
+    /discord\.gg\/[a-zA-Z0-9]+/i,
+    /(?:airdrop|giveaway|claim).*(?:winner|eligible)/i,
+    /(?:guaranteed|100%|profit|returns)/i,
+    /(?:earn|make).*\$?\d+.*(?:daily|weekly|monthly)/i
   ]
 };
 
-// Updated reporting system that runs every 6 hours
+// Updated reporting system
 function setupReportingSystem(client) {
   // Store report data
   const reportData = {
     interceptCount: 0,
-    lastReportTime: Date.now(), // Start from now
+    lastReportTime: Date.now(),
     scamTypes: {
       urlShorteners: 0,
       discordInvites: 0,
@@ -91,7 +82,7 @@ function setupReportingSystem(client) {
       otherScams: 0
     },
     topScammers: new Map(),
-    suspiciousUsers: new Map() // New: track suspicious users
+    suspiciousUsers: new Map()
   };
 
   console.log(`Reporting system initialized at ${new Date(reportData.lastReportTime).toISOString()}`);
@@ -106,15 +97,15 @@ function setupReportingSystem(client) {
       otherScams: 0
     };
     reportData.topScammers.clear();
-    // Note: Don't clear suspiciousUsers to maintain monitoring across report cycles
     console.log(`Report data reset at ${new Date().toISOString()}`);
   }
 
-  // Track user joins
+  // Track user joins with focused scoring
   client.on('guildMemberAdd', async (member) => {
     const suspiciousnessScore = calculateSuspiciousnessScore(member);
     
-    if (suspiciousnessScore > 0) {
+    // Only track users with score > 3.0 (require multiple red flags)
+    if (suspiciousnessScore > 3.0) {
       reportData.suspiciousUsers.set(member.id, {
         joinDate: new Date(),
         username: member.user.username,
@@ -139,7 +130,7 @@ function setupReportingSystem(client) {
       if (!userData.hasSpoken) {
         userData.hasSpoken = true;
         userData.firstMessage = {
-          content: message.content.substring(0, 100), // Store first 100 chars
+          content: message.content.substring(0, 100),
           timestamp: new Date(),
           channelName: message.channel.name
         };
@@ -147,80 +138,184 @@ function setupReportingSystem(client) {
     }
   });
 
-  // Calculate suspiciousness score for a member
+  // Calculate suspiciousness score with heavy focus on bio links
   function calculateSuspiciousnessScore(member) {
     let score = 0;
     const username = member.user.username.toLowerCase();
     const globalName = member.user.globalName?.toLowerCase() || '';
     const aboutMe = member.user.bio?.toLowerCase() || '';
     
-    // Check username patterns
-    SUSPICIOUS_PATTERNS.username.forEach(pattern => {
+    // PRIMARY FOCUS: Bio link analysis
+    if (aboutMe) {
+      // Extract all URLs from bio
+      const urls = aboutMe.match(/https?:\/\/\S+/g) || [];
+      const plainDomains = aboutMe.match(/(?<![.@\w])((?:\w+\.)+(?:com|net|org|io|gg|xyz|app|finance|edu|gov))\b/gi) || [];
+      
+      // Analyze each URL
+      urls.forEach(url => {
+        // Check for URL shorteners (highest risk)
+        if (containsUrlShortener(url)) {
+          score += 4;
+          console.log(`Bio URL shortener detected: ${url}`);
+        }
+        
+        // Check for known scam patterns
+        KNOWN_SCAM_PATTERNS.forEach(pattern => {
+          if (pattern.test(url)) {
+            score += 3;
+            console.log(`Bio scam pattern detected: ${url}`);
+          }
+        });
+        
+        // Check for deceptive URLs
+        if (hasDeceptiveUrl(url)) {
+          score += 3;
+          console.log(`Bio deceptive URL detected: ${url}`);
+        }
+        
+        // Check for URL obfuscation techniques
+        const obfuscation = detectUrlObfuscation(url);
+        if (obfuscation.isObfuscated) {
+          score += 2;
+          console.log(`Bio obfuscated URL detected: ${url}`);
+        }
+        
+        // Check if URL is NOT in allowed domains
+        const domain = url.match(/https?:\/\/([^\/\s]+)/i)?.[1]?.toLowerCase();
+        if (domain) {
+          const isAllowed = ALLOWED_DOMAINS.some(allowedDomain => 
+            domain === allowedDomain || domain.endsWith('.' + allowedDomain)
+          );
+          if (!isAllowed) {
+            score += 1;
+          }
+        }
+      });
+      
+      // Analyze plain domain references (without http/https)
+      plainDomains.forEach(domain => {
+        if (!ALLOWED_DOMAINS.some(allowed => domain.toLowerCase().includes(allowed))) {
+          score += 0.5;
+        }
+      });
+      
+      // Check for specific contact info patterns in bio
+      const contactPatterns = [
+        { pattern: /telegram.*[:\s]@[\w_]+/i, weight: 0.5 },
+        { pattern: /whatsapp.*[+]?\d{1,3}[-.\s]?\d{4,}/i, weight: 0.5 },
+        { pattern: /(?:dm|message|contact).*for.*(?:support|help)/i, weight: 0.5 },
+        { pattern: /discord\.gg\/[a-zA-Z0-9]+/i, weight: 1.0 },
+        { pattern: /discord.*[:\s][\w.-]+#\d{4}/i, weight: 0.5 }
+      ];
+      
+      contactPatterns.forEach(({pattern, weight}) => {
+        if (pattern.test(aboutMe)) {
+          score += weight;
+        }
+      });
+    }
+    
+    // SECONDARY: Username patterns (much less weight)
+    const highRiskUsernamePatterns = [
+      /admin[-_]?team/i,
+      /support[-_]?team/i,
+      /moderator[-_]?\d*$/i,
+      /support/i,
+      /admin/i
+    ];
+    
+    highRiskUsernamePatterns.forEach(pattern => {
       if (pattern.test(username) || pattern.test(globalName)) {
-        score += 1;
+        score += 0.3;
       }
     });
     
-    // Check bio patterns (more serious, higher score)
-    SUSPICIOUS_PATTERNS.bio.forEach(pattern => {
-      if (pattern.test(aboutMe)) {
-        score += 2;
-      }
-    });
-    
-    // Additional checks
+    // TERTIARY: Account characteristics (minimal weight)
     const accountAge = Date.now() - member.user.createdAt.getTime();
     const accountAgeDays = accountAge / (1000 * 60 * 60 * 24);
     
-    // Very new accounts (less than 7 days old) are more suspicious
     if (accountAgeDays < 7) {
-      score += 1;
+      score += 0.2;
     }
     
-    // No profile picture is somewhat suspicious
     if (member.user.avatar === null) {
-      score += 0.5;
+      score += 0.1;
     }
     
     return score;
   }
 
-  // Get detailed suspicious flags for a member
+  // Get detailed suspicious flags
   function getSuspiciousFlags(member) {
     const flags = [];
     const username = member.user.username.toLowerCase();
     const globalName = member.user.globalName?.toLowerCase() || '';
     const aboutMe = member.user.bio?.toLowerCase() || '';
     
-    SUSPICIOUS_PATTERNS.username.forEach((pattern, index) => {
-      if (pattern.test(username)) {
-        flags.push(`Username match: ${pattern.source}`);
-      } else if (pattern.test(globalName)) {
-        flags.push(`Global name match: ${pattern.source}`);
+    // Extract and detail all bio-related issues
+    if (aboutMe) {
+      const urls = aboutMe.match(/https?:\/\/\S+/g) || [];
+      
+      if (urls.length > 0) {
+        urls.forEach((url, index) => {
+          const urlFlags = [];
+          
+          if (containsUrlShortener(url)) {
+            urlFlags.push("URL shortener");
+          }
+          
+          KNOWN_SCAM_PATTERNS.forEach(pattern => {
+            if (pattern.test(url)) {
+              urlFlags.push("Matches scam pattern");
+            }
+          });
+          
+          if (hasDeceptiveUrl(url)) {
+            urlFlags.push("Deceptive URL");
+          }
+          
+          const obfuscation = detectUrlObfuscation(url);
+          if (obfuscation.isObfuscated) {
+            urlFlags.push("Obfuscated URL");
+          }
+          
+          if (urlFlags.length > 0) {
+            flags.push(`Bio URL #${index + 1}: ${urlFlags.join(", ")}`);
+          } else {
+            flags.push(`Bio URL #${index + 1}: External domain`);
+          }
+        });
       }
-    });
-    
-    SUSPICIOUS_PATTERNS.bio.forEach((pattern, index) => {
-      if (pattern.test(aboutMe)) {
-        flags.push(`Bio match: ${pattern.source}`);
+      
+      // Check for suspicious contact info
+      if (/telegram.*[:\s]@[\w_]+/i.test(aboutMe)) {
+        flags.push("Bio contains Telegram contact");
       }
-    });
+      if (/whatsapp.*[+]?\d{1,3}[-.\s]?\d{4,}/i.test(aboutMe)) {
+        flags.push("Bio contains WhatsApp number");
+      }
+      if (/discord\.gg\/[a-zA-Z0-9]+/i.test(aboutMe)) {
+        flags.push("Bio contains Discord invite");
+      }
+    }
     
+    // Only include username flags if they're serious
+    if (/admin[-_]?team|support[-_]?team/i.test(username) || /admin[-_]?team|support[-_]?team/i.test(globalName)) {
+      flags.push("Username impersonates staff");
+    }
+    
+    // Only include account age if it's very new
     const accountAge = Date.now() - member.user.createdAt.getTime();
     const accountAgeDays = accountAge / (1000 * 60 * 60 * 24);
     
-    if (accountAgeDays < 7) {
+    if (accountAgeDays < 3) {
       flags.push(`Very new account (${accountAgeDays.toFixed(1)} days old)`);
-    }
-    
-    if (member.user.avatar === null) {
-      flags.push('No profile picture');
     }
     
     return flags;
   }
 
-  // Initial startup scan function
+  // Initial startup scan - look back 2 days only
   async function performStartupScan(guild) {
     try {
       const config = require('./config');
@@ -232,44 +327,42 @@ function setupReportingSystem(client) {
         return;
       }
 
-      // Get newest members only (who joined in the last 14 days)
+      // Get members who joined in the last 2 days
       let scannedCount = 0;
       let suspiciousCount = 0;
       const recentMembers = new Collection();
-      const fourteenDaysAgo = new Date();
-      fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+      const twoDaysAgo = new Date();
+      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
 
       // Guild#members.list() is better for getting members by join date
       const memberList = await guild.members.list({
         limit: 1000,
-        after: '0' // start from beginning
+        after: '0'
       });
 
-      // Filter to only those who joined in the last 14 days
+      // Filter to only those who joined in the last 2 days
       memberList.forEach(member => {
-        if (member.joinedAt && member.joinedAt > fourteenDaysAgo) {
+        if (member.joinedAt && member.joinedAt > twoDaysAgo) {
           recentMembers.set(member.id, member);
         }
       });
 
-      console.log(`Scanning ${recentMembers.size} members who joined in the last 14 days...`);
+      console.log(`Scanning ${recentMembers.size} members who joined in the last 2 days...`);
 
       // Process each recent member
       for (const [memberId, member] of recentMembers) {
-        // Skip bots
         if (member.user.bot) continue;
 
         scannedCount++;
         
-        // Calculate suspiciousness
         const suspiciousnessScore = calculateSuspiciousnessScore(member);
         
-        if (suspiciousnessScore > 0) {
+        // Only flag users with score > 3.0
+        if (suspiciousnessScore > 3.0) {
           // Check if they've spoken recently
           let hasSpoken = false;
           let firstMessage = null;
           
-          // Try to find their most recent message - simplified approach
           try {
             const channels = guild.channels.cache.filter(ch => ch.type === ChannelType.GuildText);
             for (const [_, channel] of channels) {
@@ -288,7 +381,6 @@ function setupReportingSystem(client) {
                   break;
                 }
               } catch (channelError) {
-                // Skip channels we can't access
                 continue;
               }
             }
@@ -306,7 +398,7 @@ function setupReportingSystem(client) {
             suspiciousFlags: getSuspiciousFlags(member),
             hasSpoken: hasSpoken,
             firstMessage: firstMessage,
-            detectedOnStartup: true // Flag to indicate this was found during startup scan
+            detectedOnStartup: true
           });
           
           suspiciousCount++;
@@ -318,14 +410,13 @@ function setupReportingSystem(client) {
       // Send startup report
       const startupEmbed = new EmbedBuilder()
         .setTitle('🔍 Initial Security Scan Complete')
-        .setColor('#0099FF') // Blue color for informational
-        .setDescription(`**Scan Summary**\n• Members scanned: ${scannedCount}\n• Suspicious accounts detected: ${suspiciousCount}`)
+        .setColor('#0099FF')
+        .setDescription(`**Scan Summary**\n• Members scanned: ${scannedCount}\n• Suspicious accounts detected: ${suspiciousCount}\n• Lookback period: 2 days`)
         .setFooter({ text: 'Garden Security Bot - Startup Scan' })
         .setTimestamp();
 
       await reportChannel.send({ embeds: [startupEmbed] });
 
-      // If there are suspicious members, send the detailed report
       if (suspiciousCount > 0) {
         await sendSuspiciousMembersReport(guild, reportChannel, true);
       }
@@ -335,21 +426,21 @@ function setupReportingSystem(client) {
     }
   }
 
-  // Extract the suspicious members reporting logic into a separate function
+  // Send suspicious members report
   async function sendSuspiciousMembersReport(guild, reportChannel, isStartupScan = false) {
     try {
       const suspiciousNonActiveUsers = Array.from(reportData.suspiciousUsers.entries())
         .filter(([_, userData]) => !userData.hasSpoken)
         .filter(([_, userData]) => {
           const hoursSinceJoin = (Date.now() - userData.joinDate.getTime()) / (1000 * 60 * 60);
-          return hoursSinceJoin <= (isStartupScan ? 720 : 24); // 30 days for startup scan, 24 hours for regular
+          return hoursSinceJoin <= (isStartupScan ? 48 : 24); // 48 hours for startup scan, 24 hours for regular
         })
         .sort((a, b) => b[1].suspiciousnessScore - a[1].suspiciousnessScore);
 
       if (suspiciousNonActiveUsers.length > 0) {
         const suspiciousEmbed = new EmbedBuilder()
           .setTitle(isStartupScan ? '🚨 Suspicious Silent Members - Startup Scan' : '🚨 Suspicious Silent Members Alert')
-          .setColor('#FFA500') // Orange color for warning
+          .setColor('#FFA500')
           .setDescription(`Found ${suspiciousNonActiveUsers.length} suspicious members who ${isStartupScan ? 'joined recently' : 'joined in the last 24 hours'} but haven't spoken yet.`)
           .setFooter({ text: isStartupScan ? 'Detected during initial scan' : 'These members should be monitored closely' })
           .setTimestamp();
@@ -358,10 +449,10 @@ function setupReportingSystem(client) {
           const accountAge = Math.floor((Date.now() - userData.accountCreated.getTime()) / (1000 * 60 * 60 * 24));
           const joinedAgo = Math.floor((Date.now() - userData.joinDate.getTime()) / (1000 * 60 * 60 * 24));
           
-          const fieldName = `${userData.globalName} (@${userData.username})`;
+          const fieldName = `${userData.globalName} (@${userData.username}) <@${userId}>`;
           const fieldValue = [
             `ID: ${userId}`,
-            `Suspicion Score: ${userData.suspiciousnessScore}`,
+            `Suspicion Score: ${userData.suspiciousnessScore.toFixed(1)}`,
             `Account Age: ${accountAge} days`,
             `Joined: ${joinedAgo} days ago`,
             `Flags: ${userData.suspiciousFlags.join(', ')}`,
@@ -385,25 +476,20 @@ function setupReportingSystem(client) {
     }
   }
 
-  // Update stats function - expose this globally
+  // Update stats function
   global.updateReportData = function(type, userId, displayName = null) {
     reportData.interceptCount++;
     
-    // Update scam type counters
     if (type && reportData.scamTypes[type] !== undefined) {
       reportData.scamTypes[type]++;
     } else {
       reportData.scamTypes.otherScams++;
     }
     
-    // Track user violations if userId is provided
     if (userId) {
       const currentData = reportData.topScammers.get(userId) || { count: 0, displayName: null };
-      
-      // Update count
       currentData.count += 1;
       
-      // Update display name if provided
       if (displayName) {
         currentData.displayName = displayName;
       }
@@ -425,18 +511,16 @@ function setupReportingSystem(client) {
         return;
       }
 
-      // Current date/time formatting
       const now = new Date();
       const formattedDate = now.toISOString().split('T')[0];
       const formattedTime = now.toTimeString().split(' ')[0];
 
-      // Handle no interceptions case
       if (reportData.interceptCount === 0) {
         await reportChannel.send({
           embeds: [
             new EmbedBuilder()
               .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
-              .setColor('#00FF00')  // Green color for all-clear
+              .setColor('#00FF00')
               .setDescription(`No scam attempts intercepted in the last 6 hours! 🎉`)
               .setFooter({ text: 'Garden Security Bot - TEST MODE (6-hour interval)' })
               .setTimestamp()
@@ -447,7 +531,6 @@ function setupReportingSystem(client) {
         return;
       }
 
-      // Create a detailed embed report
       const embed = new EmbedBuilder()
         .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
         .setColor('#FF0000')
@@ -477,7 +560,6 @@ function setupReportingSystem(client) {
         .setFooter({ text: 'Garden Security Bot - TEST MODE (6-hour interval)' })
         .setTimestamp();
 
-      // Add top offenders if any exist
       if (reportData.topScammers.size > 0) {
         const topOffenders = Array.from(reportData.topScammers.entries())
           .sort((a, b) => b[1].count - a[1].count)
@@ -494,18 +576,15 @@ function setupReportingSystem(client) {
           embed.addFields({ name: 'Top Offenders', value: topOffenders });
         }
       } else {
-        // No repeat offenders
         embed.addFields({ 
           name: 'Top Offenders', 
           value: 'No repeat offenders.' 
         });
       }
 
-      // Send the embed report
       await reportChannel.send({ embeds: [embed] });
       console.log(`Sent detailed security report at ${formattedTime}`);
 
-      // Send suspicious members report
       await sendSuspiciousMembersReport(guild, reportChannel, false);
 
       // Cleanup old suspicious user data (remove users who joined more than 7 days ago)
@@ -522,7 +601,7 @@ function setupReportingSystem(client) {
   }
 
   // Run reports every 6 hours
-  const REPORT_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
+  const REPORT_INTERVAL = 6 * 60 * 60 * 1000;
   
   const intervalId = setInterval(async () => {
     try {
@@ -537,13 +616,11 @@ function setupReportingSystem(client) {
       console.log(`Running report check at: ${new Date(now).toISOString()}`);
       console.log(`Time since last report: ${(now - reportData.lastReportTime) / 60000} minutes`);
       
-      // If it's been approximately 6 hours since the last report
       if (now - reportData.lastReportTime >= REPORT_INTERVAL) {
         console.log("6 hours elapsed, sending report...");
         
         await sendDetailedReport(guild);
         
-        // Update last report time and reset data AFTER sending report
         reportData.lastReportTime = now;
         resetReportData();
       } else {
@@ -552,11 +629,12 @@ function setupReportingSystem(client) {
     } catch (error) {
       console.error('Error in report interval handler:', error);
     }
-  }, 15 * 60 * 1000); // Check every 15 minutes
+  }, 15 * 60 * 1000);
   
   client.reportInterval = intervalId;
   console.log('Security reporting system initialized - will send reports every 6 hours');
 
+  // Start initial scan after 5 seconds
   console.log('Ready event triggered, about to set timeout');
   setTimeout(async () => {
     console.log('Timeout fired, about to scan');
@@ -572,5 +650,4 @@ function setupReportingSystem(client) {
   return global.updateReportData;
 }
 
-// Export for use in main bot file
 module.exports = { setupReportingSystem };
