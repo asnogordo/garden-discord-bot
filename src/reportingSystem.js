@@ -1,6 +1,7 @@
 // reportingSystem.js - Complete implementation with bio scanning and admin impersonation detection
 const { EmbedBuilder, ChannelType, Collection, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const config = require('./config');
+const { hasProtectedRole } = require('./utils');
 
 // Known scam domains and patterns
 const KNOWN_SCAM_PATTERNS = [
@@ -331,6 +332,12 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
 
   // Check if a name is similar to a protected member
   function checkForImpersonation(memberToCheck) {
+
+    // First check if the member being checked has a protected role
+    // If they do, they cannot be an impersonator
+    if (hasProtectedRole(memberToCheck)) {
+      return null; // Not an impersonator if they have a protected role
+    }
     // Nothing to check if we haven't cached protected members
     if (reportData.protectedMemberNames.size === 0) {
       return null;
@@ -556,49 +563,60 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
     return flags;
   }
 
-  // Send a report of suspicious members
-  async function sendSuspiciousMembersReport(guild, reportChannel, isStartupScan = false) {
-    try {
-      if (reportData.suspiciousUsers.size === 0) {
-        return;
-      }
+// Send a report of suspicious members
+async function sendSuspiciousMembersReport(guild, reportChannel, isStartupScan = false) {
+  try {
+    if (reportData.suspiciousUsers.size === 0) {
+      return;
+    }
 
-      const reportTitle = isStartupScan 
-        ? '🔍 Suspicious Members from Startup Scan'
-        : '🔍 Recently Detected Suspicious Members';
+    const reportTitle = isStartupScan 
+      ? '🔍 Suspicious Members from Startup Scan'
+      : '🔍 Recently Detected Suspicious Members';
+    
+    const mainEmbed = new EmbedBuilder()
+      .setTitle(reportTitle)
+      .setColor('#FF9900')
+      .setDescription(`Detected ${reportData.suspiciousUsers.size} suspicious members.`)
+      .setTimestamp();
+
+    await reportChannel.send({ embeds: [mainEmbed] });
+
+    // Sort suspicious users by score (highest first)
+    const sortedUsers = Array.from(reportData.suspiciousUsers.entries())
+      .map(([id, data]) => ({ id, ...data }))
+      .sort((a, b) => b.suspiciousnessScore - a.suspiciousnessScore);
+    
+    // For non-startup scans, only show users detected in this scan
+    const usersToShow = isStartupScan 
+      ? sortedUsers 
+      : sortedUsers.filter(user => user.detectedOnScan);
+
+    // Track threads we create
+    const suspiciousUserThreads = new Map();
+
+    // Process all users (both impersonators and regular suspicious users)
+    for (const user of usersToShow) {
+      // Create a thread for this user
+      const threadName = `Suspicious User - ${user.displayName} (${user.id})`;
       
-      const mainEmbed = new EmbedBuilder()
-        .setTitle(reportTitle)
-        .setColor('#FF9900')
-        .setDescription(`Detected ${reportData.suspiciousUsers.size} suspicious members.`)
-        .setTimestamp();
-
-      await reportChannel.send({ embeds: [mainEmbed] });
-
-      // Sort suspicious users by score (highest first)
-      const sortedUsers = Array.from(reportData.suspiciousUsers.entries())
-        .map(([id, data]) => ({ id, ...data }))
-        .sort((a, b) => b.suspiciousnessScore - a.suspiciousnessScore);
-      
-      // For non-startup scans, only show users detected in this scan
-      const usersToShow = isStartupScan 
-        ? sortedUsers 
-        : sortedUsers.filter(user => user.detectedOnScan);
-
-      // Report impersonators first if any
-      const impersonators = usersToShow.filter(user => user.impersonation);
-      if (impersonators.length > 0) {
-        const impersonatorsEmbed = new EmbedBuilder()
-          .setTitle('⚠️ Detected Impersonators ⚠️')
-          .setColor('#FF0000')
-          .setDescription(`Found ${impersonators.length} members attempting to impersonate staff.`)
-          .setTimestamp();
-
-        await reportChannel.send({ embeds: [impersonatorsEmbed] });
-
-        // Create detailed reports for each impersonator
-        for (const user of impersonators) {
-          const impersonatorEmbed = new EmbedBuilder()
+      try {
+        const thread = await reportChannel.threads.create({
+          name: threadName,
+          autoArchiveDuration: 1440, // 24 hours in minutes
+          type: ChannelType.PublicThread,
+          reason: 'Suspicious user detected'
+        });
+        
+        // Store the thread ID
+        suspiciousUserThreads.set(user.id, thread.id);
+        
+        // Create the appropriate embed based on whether this is an impersonator
+        let userEmbed;
+        
+        if (user.impersonation) {
+          // Impersonator embed
+          userEmbed = new EmbedBuilder()
             .setTitle(`Impersonator: ${user.displayName}`)
             .setColor('#FF0000')
             .setDescription(`This user appears to be impersonating a staff member.`)
@@ -631,49 +649,9 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
             )
             .setThumbnail(user.avatarURL)
             .setTimestamp();
-
-          // Add suspicious flags if any
-          if (user.suspiciousFlags && user.suspiciousFlags.length > 0) {
-            impersonatorEmbed.addFields({
-              name: 'Suspicious Flags',
-              value: user.suspiciousFlags.join('\n'),
-              inline: false
-            });
-          }
-
-          // Add message info if they've spoken
-          if (user.hasSpoken && user.firstMessage) {
-            impersonatorEmbed.addFields({
-              name: 'First Message',
-              value: `Channel: #${user.firstMessage.channelName}\nTime: ${user.firstMessage.timestamp}\nContent: "${user.firstMessage.content}"`,
-              inline: false
-            });
-          }
-
-          // Create ban button
-          const banButton = new ButtonBuilder()
-            .setCustomId(`ban_${user.id}_true`)
-            .setLabel('Ban User')
-            .setStyle(ButtonStyle.Danger);
-
-          const actionRow = new ActionRowBuilder().addComponents(banButton);
-
-          await reportChannel.send({
-            embeds: [impersonatorEmbed],
-            components: [actionRow]
-          });
-        }
-      }
-
-      // Report other suspicious users (in batches to avoid hitting message limits)
-      const otherSuspicious = usersToShow.filter(user => !user.impersonation);
-      const batchSize = 10;
-      
-      for (let i = 0; i < otherSuspicious.length; i += batchSize) {
-        const batch = otherSuspicious.slice(i, i + batchSize);
-        
-        for (const user of batch) {
-          const userEmbed = new EmbedBuilder()
+        } else {
+          // Regular suspicious user embed
+          userEmbed = new EmbedBuilder()
             .setTitle(`Suspicious User: ${user.displayName}`)
             .setColor('#FF9900')
             .setDescription(`Suspicion Score: ${user.suspiciousnessScore.toFixed(1)}/10`)
@@ -695,43 +673,58 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
               }
             )
             .setThumbnail(user.avatarURL);
-
-          // Add suspicious flags if any
-          if (user.suspiciousFlags && user.suspiciousFlags.length > 0) {
-            userEmbed.addFields({
-              name: 'Suspicious Flags',
-              value: user.suspiciousFlags.join('\n'),
-              inline: false
-            });
-          }
-
-          // Add message info if they've spoken
-          if (user.hasSpoken && user.firstMessage) {
-            userEmbed.addFields({
-              name: 'First Message',
-              value: `Channel: #${user.firstMessage.channelName}\nTime: ${user.firstMessage.timestamp}\nContent: "${user.firstMessage.content}"`,
-              inline: false
-            });
-          }
-
-          // Create ban button
-          const banButton = new ButtonBuilder()
-            .setCustomId(`ban_${user.id}_true`)
-            .setLabel('Ban User')
-            .setStyle(ButtonStyle.Danger);
-
-          const actionRow = new ActionRowBuilder().addComponents(banButton);
-
-          await reportChannel.send({
-            embeds: [userEmbed],
-            components: [actionRow]
+        }
+        
+        // Add suspicious flags if any
+        if (user.suspiciousFlags && user.suspiciousFlags.length > 0) {
+          userEmbed.addFields({
+            name: 'Suspicious Flags',
+            value: user.suspiciousFlags.join('\n'),
+            inline: false
           });
         }
+
+        // Add message info if they've spoken
+        if (user.hasSpoken && user.firstMessage) {
+          userEmbed.addFields({
+            name: 'First Message',
+            value: `Channel: #${user.firstMessage.channelName}\nTime: ${user.firstMessage.timestamp}\nContent: "${user.firstMessage.content}"`,
+            inline: false
+          });
+        }
+
+        // Create ban button
+        const banButton = new ButtonBuilder()
+          .setCustomId(`ban_${user.id}_true`)
+          .setLabel('Ban User')
+          .setStyle(ButtonStyle.Danger);
+
+        const actionRow = new ActionRowBuilder().addComponents(banButton);
+
+        // Send the embed in the thread
+        await thread.send({
+          embeds: [userEmbed],
+          components: [actionRow]
+        });
+        
+      } catch (error) {
+        console.error(`Error creating thread for user ${user.id}:`, error);
+        // Fall back to sending in the main channel if thread creation fails
+        await reportChannel.send({
+          content: `Failed to create thread for suspicious user ${user.displayName} (${user.id})`,
+          embeds: [userEmbed],
+          components: [actionRow]
+        });
       }
-    } catch (error) {
-      console.error('Error sending suspicious members report:', error);
     }
+    
+    // Store the threads map for later reference
+    reportData.suspiciousUserThreads = suspiciousUserThreads;
+    
+  } catch (error) {
+    console.error('Error sending suspicious members report:', error);
   }
+}
 
   // Send detailed report
   async function sendDetailedReport(guild) {
@@ -844,19 +837,11 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
       let scannedCount = 0;
       let suspiciousCount = 0;
       let impersonatorCount = 0;
-      const recentMembers = new Collection();
-      const twoDaysAgo = new Date();
-      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
 
       // Fetch ALL members using our pagination function
       const allMembers = await fetchAllGuildMembers(guild);
-
-      // Filter to only those who joined in the last 2 days
-      allMembers.forEach(member => {
-        if (member.joinedAt && member.joinedAt > twoDaysAgo) {
-          recentMembers.set(member.id, member);
-        }
-      });
+      const recentMembers = allMembers;
+      console.log(`Initial scan: examining all ${recentMembers.size} members...`);
 
       console.log(`Scanning ${recentMembers.size} members who joined in the last 2 days...`);
 
