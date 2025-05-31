@@ -373,7 +373,7 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
       // Check for high similarity
       // Display name similarity
       const displayNameSimilarity = calculateStringSimilarity(displayName, protectedData.displayName);
-      if (displayNameSimilarity > 0.7) {
+      if (displayNameSimilarity > 0.9) {
         similarityResults.push({
           score: displayNameSimilarity,
           type: 'display name',
@@ -383,7 +383,7 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
       
       // Username similarity
       const usernameSimilarity = calculateStringSimilarity(username, protectedData.username);
-      if (usernameSimilarity > 0.7) {
+      if (usernameSimilarity > 0.9) {
         similarityResults.push({
           score: usernameSimilarity,
           type: 'username',
@@ -394,7 +394,7 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
       // Global name similarity
       if (globalName && protectedData.globalName) {
         const globalNameSimilarity = calculateStringSimilarity(globalName, protectedData.globalName);
-        if (globalNameSimilarity > 0.7) {
+        if (globalNameSimilarity > 0.9) {
           similarityResults.push({
             score: globalNameSimilarity,
             type: 'global name',
@@ -862,8 +862,8 @@ async function sendSuspiciousMembersReport(guild, reportChannel, isStartupScan =
           Math.max(suspiciousnessScore, 5.0) : // Ensure minimum score of 5.0 for impersonators
           suspiciousnessScore;
         
-        // Only flag users with score > 3.0 or impersonators
-        if (finalScore > 3.0 || impersonationResult) {
+        // Only flag users with score >= 5.0 or impersonators
+        if (finalScore >= 5.0 || impersonationResult) {
           // Check if they've spoken recently
           let hasSpoken = false;
           let firstMessage = null;
@@ -1048,7 +1048,7 @@ async function sendSuspiciousMembersReport(guild, reportChannel, isStartupScan =
           suspiciousnessScore;
         
         // Track members with high suspicion score
-        if (finalScore > 3.0 || impersonationResult) {
+        if (finalScore >= 5.0 || impersonationResult) {
           const suspiciousFlags = getSuspiciousFlags(member);
           
           // Add impersonation flag if detected
@@ -1179,7 +1179,7 @@ async function sendSuspiciousMembersReport(guild, reportChannel, isStartupScan =
       suspiciousnessScore;
     
     // Track members with sufficiently high score or impersonation
-    if (finalScore > 3.0 || impersonationResult) {
+    if (finalScore >= 5.0 || impersonationResult) {
       const suspiciousFlags = getSuspiciousFlags(member);
       
       // Add impersonation flag if detected

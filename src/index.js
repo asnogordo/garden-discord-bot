@@ -1,3 +1,4 @@
+//index.js - main file
 require('dotenv').config();
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, MessageFlags } = require('discord.js');
 const fs = require('fs');
