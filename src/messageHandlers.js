@@ -1016,9 +1016,12 @@ function detectUrlObfuscation(content) {
   const hasObfuscatedDiscord = /d\s*i\s*s\s*c\s*o\s*r\s*d\s*\.\s*g\s*g/i.test(cleanContent) ||
                               /d\s*i\s*s\s*c\s*o\s*r\s*d\s*\.\s*c\s*o\s*m/i.test(cleanContent);
 
+ // Detect excessive line breaks (common in obfuscation)
+  const excessiveLineBreaks = (content.match(/\n/g) || []).length > 5 && content.length < 200;
+  
   const isObfuscated = hasUrlEncoding || hasLineBreaksInUrl || hasInvisibleChars || 
                       hasUnusualChars || hasBrokenScheme || hasAlternativeSlashes || 
-                      hasObfuscatedDiscord;
+                      hasObfuscatedDiscord || excessiveLineBreaks;
 
   return {
     hasUrlEncoding,
@@ -1028,6 +1031,7 @@ function detectUrlObfuscation(content) {
     hasBrokenScheme,
     hasAlternativeSlashes,
     hasObfuscatedDiscord,
+    excessiveLineBreaks,
     isObfuscated
   };
 }
