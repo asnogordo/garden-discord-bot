@@ -1,3 +1,4 @@
+// messageHandlers.js - main message mangement file
 const { DMChannel, MessageType, EmbedBuilder, ChannelType, ButtonBuilder, ButtonStyle, ActionRowBuilder, PermissionFlagsBits } = require('discord.js');
 const cowsay = require('cowsay');
 const { 
@@ -38,7 +39,8 @@ const ALLOWED_DOMAINS = [
   'youtu.be',
   'www.youtube.com',
   'youtube-nocookie.com',
-  'm.youtube.com'
+  'm.youtube.com',
+  'dune.com'
 ];
 
 const URL_SHORTENERS = [
@@ -536,6 +538,19 @@ async function handleScamMessage(message) {
     console.log(`\n--- Targeted scam check ---`);
     console.log(`Is targeted scam: ${isTargetedScam ? 'YES' : 'NO'}`);
 
+    const isForwarded = message.reference !== null || message.webhookId !== null;
+    console.log(`FORWARDED MESSAGE CHECK: ${isForwarded ? 'DETECTED' : 'Not detected'}`);
+
+    if (isForwarded) {
+      console.log(`Reference: ${message.reference ? 'Yes' : 'No'}`);
+      console.log(`Webhook: ${message.webhookId ? 'Yes' : 'No'}`);
+      
+      // If it's forwarded and user has only base role, treat as higher risk
+      if (hasOnlyBaseRole) {
+        console.log(`ELEVATED RISK: Forwarded message from base role user`);
+      }
+    }
+
     // Final decision logic
     console.log(`\n--- FINAL DECISION ---`);
     
@@ -545,7 +560,8 @@ async function handleScamMessage(message) {
       isTargetedScam || 
       isScamUser ||
       (hasDscGg && !hasProtectedRole(member)) ||  // Always catch dsc.gg links unless protected
-      (hasDiscordInvite && !hasProtectedRole(member) && !content.includes('garden.finance')) // Always catch discord invites unless protected or official
+      (hasDiscordInvite && !hasProtectedRole(member) && !content.includes('garden.finance') || // Always catch discord invites unless protected or official
+      isForwarded && hasOnlyBaseRole) //disallow forwarded messages by regular users
     );
     
     console.log(`Should quarantine: ${shouldQuarantine ? 'YES' : 'NO'}`);
@@ -944,9 +960,11 @@ function hasDeceptiveUrl(content) {
          hasSuspiciousDomain || hasHyphenatedDomain || hasTicketRelatedUrl;
 }
 
-// Add a new function to detect URL encoding and other obfuscation techniques
 function detectUrlObfuscation(content) {
-  // First extract all URLs from the content
+  // Remove Discord formatting to get cleaner text
+  const cleanContent = content.replace(/\*\*|__|\*|_|`|~~|>/g, '');
+  
+  // Extract all URLs from the original content (for allowed domain checking)
   const urlMatches = content.match(urlPattern) || [];
   
   // Check each URL for allowed domains before running obfuscation checks
@@ -966,24 +984,55 @@ function detectUrlObfuscation(content) {
           hasLineBreaksInUrl: false,
           hasInvisibleChars: false,
           hasUnusualChars: false,
+          hasBrokenScheme: false,
+          hasAlternativeSlashes: false,
           isObfuscated: false
         };
       }
     }
   }
   
-  // Only check for obfuscation if we have non-allowed domains
-  const hasUrlEncoding = /%[0-9A-Fa-f]{2}/.test(content);
-  const hasLineBreaksInUrl = /https?:[\s\n\r]*\/[\s\n\r]*\//.test(content);
-  const hasInvisibleChars = /https?:\/\/\S*[\u200B-\u200D\uFEFF\u2060\u180E]\S*/i.test(content);
-  const hasUnusualChars = /https?:\/\/[^\/\s]*[<>()\[\]{}\\|^`~]+[^\/\s]*/i.test(content);
+  // Enhanced obfuscation detection
+  const hasUrlEncoding = /%[0-9A-Fa-f]{2}/.test(cleanContent);
+  
+  // Detect line breaks within URLs (including in the scheme)
+  const hasLineBreaksInUrl = /h\s*t\s*t\s*p\s*s?\s*:\s*[\/\@\s]*\s*[\/\@\s]*/.test(cleanContent);
+  
+  // Detect broken HTTP/HTTPS schemes
+  const hasBrokenScheme = /h\s*t\s*t\s*p\s*s?\s*:/.test(cleanContent) && 
+                         !/https?:\/\//.test(cleanContent);
+  
+  // Detect alternative characters used instead of //
+  const hasAlternativeSlashes = /https?:\s*[@#*]{2,}/.test(cleanContent) || 
+                               /https?:\s*[\/\@][\/\@]/.test(cleanContent);
+  
+  // Detect invisible characters
+  const hasInvisibleChars = /https?:\/\/\S*[\u200B-\u200D\uFEFF\u2060\u180E]\S*/i.test(cleanContent);
+  
+  // Detect unusual characters in URLs
+  const hasUnusualChars = /https?:\/\/[^\/\s]*[<>()\[\]{}\\|^`~]+[^\/\s]*/i.test(cleanContent);
+  
+  // Additional check: look for Discord-like domains that are heavily obfuscated
+  const hasObfuscatedDiscord = /d\s*i\s*s\s*c\s*o\s*r\s*d\s*\.\s*g\s*g/i.test(cleanContent) ||
+                              /d\s*i\s*s\s*c\s*o\s*r\s*d\s*\.\s*c\s*o\s*m/i.test(cleanContent);
+
+ // Detect excessive line breaks (common in obfuscation)
+  const excessiveLineBreaks = (content.match(/\n/g) || []).length > 5 && content.length < 200;
+  
+  const isObfuscated = hasUrlEncoding || hasLineBreaksInUrl || hasInvisibleChars || 
+                      hasUnusualChars || hasBrokenScheme || hasAlternativeSlashes || 
+                      hasObfuscatedDiscord || excessiveLineBreaks;
 
   return {
     hasUrlEncoding,
     hasLineBreaksInUrl,
     hasInvisibleChars,
     hasUnusualChars,
-    isObfuscated: hasUrlEncoding || hasLineBreaksInUrl || hasInvisibleChars || hasUnusualChars
+    hasBrokenScheme,
+    hasAlternativeSlashes,
+    hasObfuscatedDiscord,
+    excessiveLineBreaks,
+    isObfuscated
   };
 }
 

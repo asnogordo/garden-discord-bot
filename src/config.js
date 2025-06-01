@@ -1,3 +1,4 @@
+// config.js - reads the .env and preps config variables
 require('dotenv').config();
 
 module.exports = {
