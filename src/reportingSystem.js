@@ -819,7 +819,7 @@ async function sendSuspiciousMembersReport(guild, reportChannel, isStartupScan =
     }
   }
 
-  // Initial startup scan
+// Initial startup scan
   async function performStartupScan(guild) {
     try {
       console.log(`Starting initial security scan at ${new Date().toISOString()}`);
@@ -833,17 +833,25 @@ async function sendSuspiciousMembersReport(guild, reportChannel, isStartupScan =
         return;
       }
 
-      // Get members who joined in the last 2 days
+      // Calculate the cutoff date (30 days ago)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      // Get members who joined in the last 30 days
       let scannedCount = 0;
       let suspiciousCount = 0;
       let impersonatorCount = 0;
 
       // Fetch ALL members using our pagination function
       const allMembers = await fetchAllGuildMembers(guild);
-      const recentMembers = allMembers;
-      console.log(`Initial scan: examining all ${recentMembers.size} members...`);
-
-      console.log(`Scanning ${recentMembers.size} members who joined in the last 2 days...`);
+      
+      // Filter to only members who joined in the last 30 days
+      const recentMembers = allMembers.filter(member => {
+        if (!member.joinedAt) return false; // Skip if no join date
+        return member.joinedAt >= thirtyDaysAgo;
+      });
+      
+      console.log(`Initial scan: examining ${recentMembers.size} members who joined in the last 30 days (out of ${allMembers.size} total members)...`);
 
       // Process each recent member
       for (const [memberId, member] of recentMembers) {
@@ -921,13 +929,13 @@ async function sendSuspiciousMembersReport(guild, reportChannel, isStartupScan =
         }
       }
 
-      console.log(`Startup scan complete: ${scannedCount} members scanned, ${suspiciousCount} suspicious accounts found, ${impersonatorCount} impersonators`);
+      console.log(`Startup scan complete: ${scannedCount} members scanned (last 30 days), ${suspiciousCount} suspicious accounts found, ${impersonatorCount} impersonators`);
 
       // Send startup report
       const startupEmbed = new EmbedBuilder()
         .setTitle('🔍 Initial Security Scan Complete')
         .setColor('#0099FF')
-        .setDescription(`**Scan Summary**\n• Members scanned: ${scannedCount}\n• Suspicious accounts detected: ${suspiciousCount}\n• Admin impersonators: ${impersonatorCount}\n• Lookback period: 2 days`)
+        .setDescription(`**Scan Summary**\n• Members scanned: ${scannedCount}\n• Suspicious accounts detected: ${suspiciousCount}\n• Admin impersonators: ${impersonatorCount}\n• Lookback period: 30 days`)
         .setFooter({ text: 'Garden Security Bot - Startup Scan' })
         .setTimestamp();
 
