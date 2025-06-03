@@ -538,7 +538,8 @@ async function handleScamMessage(message) {
     console.log(`\n--- Targeted scam check ---`);
     console.log(`Is targeted scam: ${isTargetedScam ? 'YES' : 'NO'}`);
 
-    const isForwarded = message.reference !== null || message.webhookId !== null;
+    const isForwarded = (message.reference !== null && message.type !== MessageType.Reply) || 
+                   message.webhookId !== null;
     console.log(`FORWARDED MESSAGE CHECK: ${isForwarded ? 'DETECTED' : 'Not detected'}`);
 
     if (isForwarded) {
