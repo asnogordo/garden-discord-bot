@@ -569,10 +569,25 @@ async function handleScamMessage(message) {
     
     if (shouldQuarantine) {
       console.log(`QUARANTINE TRIGGERED: Scam detected`);
-      await quarantineMessage(message, new Set([channel.id]));
+      
+      // Build detection reason object
+      const detectionReason = {
+        isForwarded: isForwarded,
+        hasReference: message.reference !== null,
+        hasWebhook: message.webhookId !== null,
+        hasUrlObfuscation: urlObfuscation.isObfuscated,
+        hasExternalUrl: hasExternalUrl,
+        hasShortenerUrl: hasShortenerUrl,
+        hasDiscordInvite: hasDiscordInvite,
+        isScamContent: isScamContent,
+        isTargetedScam: isTargetedScam,
+        isScamUser: isScamUser,
+        hasDscGg: hasDscGg
+      };
+      
+      await quarantineMessage(message, new Set([channel.id]), detectionReason);
       return true;
     }
-
     // Handle repeated mentions and spam occurrences
     console.log(`\n--- SUSPECTED SCAMMER CHECK ---`);
     const isSuspected = isSuspectedScammer(author.id);
@@ -601,7 +616,8 @@ async function handleScamMessage(message) {
   }
 }
 
-async function quarantineMessage(message, channelIds) {
+// quarantine the message, stop the spread
+async function quarantineMessage(message, channelIds, detectionReason = {}) {
   try {
     const { guild, author, content, member } = message;
     const scammer = addSuspectedScammer(author.id);
@@ -642,16 +658,17 @@ async function quarantineMessage(message, channelIds) {
     // Wait for all deletion attempts to complete
     await Promise.allSettled(deletionPromises);
     
+    // Determine scam type for reporting
+    let scamType = 'otherScams';
+    if (containsUrlShortener(content)) {
+      scamType = 'urlShorteners';
+    } else if (/discord\.gg[\\/]|discord\.com\/invite[\\/]/i.test(content)) {
+      scamType = 'discordInvites';
+    } else if (detectUrlObfuscation(content).isObfuscated) {
+      scamType = 'encodedUrls';
+    }
+    
     if (global.updateReportData) {
-      let scamType = 'otherScams';
-      if (containsUrlShortener(content)) {
-        scamType = 'urlShorteners';
-      } else if (/discord\.gg[\\/]|discord\.com\/invite[\\/]/i.test(content)) {
-        scamType = 'discordInvites';
-      } else if (detectUrlObfuscation(content).isObfuscated) {
-        scamType = 'encodedUrls';
-      }
-      
       global.updateReportData(scamType, author.id, member.displayName || author.username);
     }
 
@@ -682,10 +699,26 @@ async function quarantineMessage(message, channelIds) {
 
     const originalMessage = content.trim();
 
-    // Create an embed with the provided information
+    // Build detection details string
+    let detectionDetails = [];
+    if (detectionReason.isForwarded) {
+      detectionDetails.push("📤 **Forwarded Message**");
+      if (detectionReason.hasReference) detectionDetails.push("  └ Has message reference");
+      if (detectionReason.hasWebhook) detectionDetails.push("  └ Via webhook");
+    }
+    if (detectionReason.hasUrlObfuscation) detectionDetails.push("🔗 **URL Obfuscation**");
+    if (detectionReason.hasExternalUrl) detectionDetails.push("🌐 **External URL**");
+    if (detectionReason.hasShortenerUrl) detectionDetails.push("📎 **URL Shortener**");
+    if (detectionReason.hasDiscordInvite) detectionDetails.push("💬 **Discord Invite**");
+    if (detectionReason.isScamContent) detectionDetails.push("⚠️ **Scam Pattern Match**");
+    if (detectionReason.isTargetedScam) detectionDetails.push("🎯 **Targeted Scam**");
+    
+    const detectionSummary = detectionDetails.length > 0 ? detectionDetails.join('\n') : "Standard detection";
+
+    // Create an embed with the provided information (enhanced)
     const warningMessageEmbed = createWarningMessageEmbed(
       accountCreatedAt, joinDate, displayName, username, userId, roles, channelIds, originalMessage,
-      scammer.spamOccurrences
+      scammer.spamOccurrences, detectionSummary // Add detection summary as new parameter
     );
 
     // Send the report to the scam channel

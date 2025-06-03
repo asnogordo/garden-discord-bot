@@ -105,7 +105,7 @@ function createSwapEmbed(amount, usdValue, txHash) {
     .setTimestamp();
 }
 
-function createWarningMessageEmbed(accountCreatedAt, joinDate, displayName, username, userId, roles, channelIds, originalMessage, spamOccurrences = 0) {
+function createWarningMessageEmbed(accountCreatedAt, joinDate, displayName, username, userId, roles, channelIds, originalMessage, spamOccurrences = 0, detectionSummary = null) {
   const embed = new EmbedBuilder()
     .setTitle('🚨 Suspicious Activity Detected')
     .setDescription('Planting a 🌱 instead.')
@@ -151,6 +151,15 @@ function createWarningMessageEmbed(accountCreatedAt, joinDate, displayName, user
     value: (Number.isFinite(spamOccurrences) ? spamOccurrences : 0).toString(), 
     inline: true 
   });
+  
+  // Add detection details if provided
+  if (detectionSummary) {
+    fields.push({ 
+      name: '🔍 Detection Details', 
+      value: String(detectionSummary),
+      inline: false 
+    });
+  }
   
   // Safely handle the original message
   if (originalMessage) {
