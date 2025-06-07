@@ -2,7 +2,12 @@
 const { EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const config = require('./config');
 
-function setupImpersonationDetection(client) {
+function setupImpersonationDetection(client, options = {}) {
+  const { dryRun = false } = options;
+  
+  console.log('[IMPERSONATION] Setting up impersonation detection system...');
+  console.log(`[IMPERSONATION] Mode: ${dryRun ? 'DRY RUN (no actions will be taken)' : 'LIVE'}`);
+  
   // Cache for protected members
   const protectedMembers = new Map();
   let lastCacheUpdate = 0;
@@ -51,24 +56,32 @@ function setupImpersonationDetection(client) {
   // Update protected members cache
   async function updateProtectedMembersCache(guild) {
     try {
-      console.log('Updating protected members cache...');
+      console.log('[IMPERSONATION] Updating protected members cache...');
+      console.log(`[IMPERSONATION] Guild: ${guild.name} (${guild.id})`);
+      console.log(`[IMPERSONATION] Protected role IDs: ${JSON.stringify(config.PROTECTED_ROLE_IDS)}`);
+      
       protectedMembers.clear();
       
       if (!config.PROTECTED_ROLE_IDS || config.PROTECTED_ROLE_IDS.length === 0) {
-        console.error('No protected role IDs configured!');
+        console.error('[IMPERSONATION] No protected role IDs configured!');
         return;
       }
       
       // Fetch all members if not cached
+      console.log('[IMPERSONATION] Fetching guild members...');
       await guild.members.fetch();
+      console.log(`[IMPERSONATION] Fetched ${guild.members.cache.size} members`);
       
       // Get all members with protected roles
       for (const roleId of config.PROTECTED_ROLE_IDS) {
+        console.log(`[IMPERSONATION] Processing role ID: ${roleId}`);
         const role = guild.roles.cache.get(roleId);
         if (!role) {
-          console.warn(`Role ${roleId} not found`);
+          console.warn(`[IMPERSONATION] Role ${roleId} not found`);
           continue;
         }
+        
+        console.log(`[IMPERSONATION] Found role: ${role.name} with ${role.members.size} members`);
         
         role.members.forEach(member => {
           protectedMembers.set(member.id, {
@@ -78,14 +91,14 @@ function setupImpersonationDetection(client) {
             normalizedName: normalizeString(member.displayName),
             roleName: role.name
           });
-          console.log(`Protected: ${member.displayName} (${role.name})`);
+          console.log(`[IMPERSONATION] Protected: ${member.displayName} (${role.name})`);
         });
       }
       
       lastCacheUpdate = Date.now();
-      console.log(`Cache updated: ${protectedMembers.size} protected members`);
+      console.log(`[IMPERSONATION] Cache updated: ${protectedMembers.size} protected members total`);
     } catch (error) {
-      console.error('Error updating protected members cache:', error);
+      console.error('[IMPERSONATION] Error updating protected members cache:', error);
     }
   }
   
@@ -317,14 +330,18 @@ function setupImpersonationDetection(client) {
   client.on('guildMemberAdd', async (member) => {
     if (member.user.bot) return;
     
+    console.log(`[IMPERSONATION] New member joined: ${member.displayName} (${member.id})`);
+    
     const impersonationData = checkForImpersonation(member);
     if (impersonationData) {
-      console.log(`New member ${member.displayName} is impersonating ${impersonationData.impersonatedName}!`);
+      console.log(`[IMPERSONATION] New member ${member.displayName} is impersonating ${impersonationData.impersonatedName}!`);
       
       const reportChannel = member.guild.channels.cache.get(config.SCAM_CHANNEL_ID);
       if (reportChannel) {
         await sendImpersonatorAlert(member, impersonationData, reportChannel);
       }
+    } else {
+      console.log(`[IMPERSONATION] New member ${member.displayName} is not an impersonator`);
     }
   });
   
