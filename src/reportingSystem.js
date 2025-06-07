@@ -66,8 +66,11 @@ const SUSPICIOUS_PATTERNS = {
     /discord\.gg\/[a-zA-Z0-9]+/i,
     /(?:airdrop|giveaway|claim).*(?:winner|eligible)/i,
     /(?:guaranteed|100%|profit|returns)/i,
-    /(?:earn|make).*\$?\d+.*(?:daily|weekly|monthly)/i
-  ]
+    /(?:earn|make).*\$?\d+.*(?:daily|weekly|monthly)/i,
+    /(?:admin|moderator|staff|support).*(?:here|available|contact)/i,
+    /(?:official|verified).*(?:admin|moderator|staff)/i,
+    /dm.*(?:for|about).*(?:support|help|assistance)/i,
+  ],
 };
 
 // Create a wrapper for the reporting system
@@ -277,6 +280,7 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
         
         console.log(`Found ${roleMembers.size} members with role ${role.name}`);
         
+        let addedCount = 0;
         roleMembers.forEach(member => {
           if (!reportData.protectedMemberNames.has(member.id)) {
             const memberData = {
@@ -290,11 +294,49 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
             
             reportData.protectedMemberNames.set(member.id, memberData);
             console.log(`Added protected member: ${member.displayName} with role ${role.name}`);
+            addedCount++;
+          } else {
+            // Member already exists with another protected role - just log it
+            const existingData = reportData.protectedMemberNames.get(member.id);
+            console.log(`Member ${member.displayName} already protected with role ${existingData.roleName}, also has ${role.name}`);
           }
         });
         
+        console.log(`✅ Processed role ${role.name}: ${addedCount} new members added to protection list`);
+        
       } catch (error) {
         console.error(`Error fetching members with role ${roleId}:`, error.message);
+        
+        // Fallback method if direct role fetch fails
+        try {
+          console.log(`Trying fallback method for role ${role.name}...`);
+          const allMembers = await guild.members.fetch({ limit: 1000 });
+          const roleMembers = allMembers.filter(member => member.roles.cache.has(roleId));
+          
+          console.log(`Fallback method found ${roleMembers.size} members with role ${role.name}`);
+          
+          let fallbackAddedCount = 0;
+          roleMembers.forEach(member => {
+            if (!reportData.protectedMemberNames.has(member.id)) {
+              const memberData = {
+                displayName: member.displayName.toLowerCase(),
+                username: member.user.username.toLowerCase(),
+                globalName: member.user.globalName ? member.user.globalName.toLowerCase() : null,
+                avatarHash: member.user.avatar,
+                roleId: roleId,
+                roleName: role.name
+              };
+              
+              reportData.protectedMemberNames.set(member.id, memberData);
+              console.log(`Added protected member (fallback): ${member.displayName} with role ${role.name}`);
+              fallbackAddedCount++;
+            }
+          });
+          
+          console.log(`✅ Fallback processed role ${role.name}: ${fallbackAddedCount} members added`);
+        } catch (fallbackError) {
+          console.error(`Fallback method also failed for role ${role.name}:`, fallbackError.message);
+        }
       }
     }
     
@@ -307,25 +349,6 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
     console.error('Error updating protected members cache:', error);
   }
 }
-
-// Enhanced suspicious bio patterns (you already have these, but here are some additions)
-const ADDITIONAL_BIO_PATTERNS = [
-  // Admin/Staff impersonation in bio
-  /(?:admin|moderator|staff|support).*(?:here|available|contact)/i,
-  /(?:official|verified).*(?:admin|moderator|staff)/i,
-  /dm.*(?:for|about).*(?:support|help|assistance)/i,
-  
-  // Contact information that shouldn't be in bios
-  /telegram.*@[\w_]+/i,
-  /whatsapp.*\+?\d{1,3}/i,
-  /discord.*[\w.-]+#\d{4}/i,
-  
-  // Scam indicators
-  /(?:winner|congratulations).*(?:airdrop|giveaway)/i,
-  /click.*(?:link|here).*(?:claim|verify)/i,
-  /limited.*time.*(?:offer|opportunity)/i
-];
-
   // Utility function: Calculate string similarity (Levenshtein distance based)
   function calculateStringSimilarity(str1, str2) {
     if (!str1 || !str2) return 0;
@@ -388,44 +411,48 @@ function checkForImpersonation(memberToCheck) {
       continue;
     }
     
-    let suspicionScore = 0;
+    let hasNameMatch = false;
+    let hasAvatarMatch = false;
     let matchDetails = [];
+    let nameMatchScore = 0;
     
-    // 1. DISPLAY NAME MATCH (Primary check - most important)
+    // 1. CHECK FOR DISPLAY NAME MATCH
     if (displayName === protectedData.displayName) {
-      suspicionScore += 10; // Exact match = immediate flag
-      matchDetails.push('exact display name match');
-    } else {
-      // Check for high similarity in display name
-      const similarity = calculateStringSimilarity(displayName, protectedData.displayName);
-      if (similarity > 0.85) {
-        suspicionScore += (similarity * 8); // Scale by similarity
-        matchDetails.push(`${Math.round(similarity * 100)}% display name similarity`);
-      }
+      // EXACT display name match = immediate impersonator flag
+      return {
+        impersonatedUserId: protectedId,
+        impersonatedName: protectedData.displayName,
+        impersonatedRole: protectedData.roleName,
+        similarityType: 'exact display name match',
+        similarityScore: 1.0,
+        requiresBothMatches: false // Exact name match doesn't need avatar match
+      };
     }
     
-    // 2. AVATAR SIMILARITY CHECK (if we have both avatars)
-    if (avatarHash && protectedData.avatarHash) {
-      if (avatarHash === protectedData.avatarHash) {
-        suspicionScore += 8; // Same avatar = very suspicious
-        matchDetails.push('identical avatar');
-      }
-      // Note: We can't easily compare avatar images without downloading and processing them
-      // The hash comparison catches exact matches (someone using same image)
+    // 2. CHECK FOR HIGH SIMILARITY + AVATAR MATCH
+    // For non-exact matches, we need BOTH name similarity AND avatar match
+    const similarity = calculateStringSimilarity(displayName, protectedData.displayName);
+    if (similarity >= 0.95) {
+      hasNameMatch = true;
+      nameMatchScore = similarity;
+      matchDetails.push(`${Math.round(similarity * 100)}% display name similarity`);
     }
     
-    // 3. BIO SUSPICIOUS PATTERNS (already covered in calculateSuspiciousnessScore)
-    // This is handled separately in the suspiciousness scoring
+    // Check for avatar match (only needed for similarity matches, not exact matches)
+    if (avatarHash && protectedData.avatarHash && avatarHash === protectedData.avatarHash) {
+      hasAvatarMatch = true;
+      matchDetails.push('identical avatar');
+    }
     
-    // If suspicion score is high enough, flag as impersonator
-    if (suspicionScore >= 6) {
+    // 3. FLAG AS IMPERSONATOR ONLY IF BOTH NAME SIMILARITY AND AVATAR MATCH
+    if (hasNameMatch && hasAvatarMatch) {
       return {
         impersonatedUserId: protectedId,
         impersonatedName: protectedData.displayName,
         impersonatedRole: protectedData.roleName,
         similarityType: matchDetails.join(', '),
-        similarityScore: Math.min(suspicionScore / 10, 1.0), // Convert to 0-1 scale
-        suspicionScore: suspicionScore
+        similarityScore: nameMatchScore,
+        requiresBothMatches: true // This required both name similarity + avatar match
       };
     }
   }
