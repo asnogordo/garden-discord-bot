@@ -237,13 +237,12 @@ async function fetchAllGuildMembers(guild, options = {}) {
   return allMembers;
 }
 
-// Optimized updateProtectedMembersCache function
 async function updateProtectedMembersCache(guild, forceRefresh = false) {
   try {
     // Check if we need to update the cache
     const needsRefresh = forceRefresh || 
                         !reportData.lastProtectedMembersUpdate ||
-                        (Date.now() - reportData.lastProtectedMembersUpdate > 12 * 60 * 60 * 1000); // 12 hours
+                        (Date.now() - reportData.lastProtectedMembersUpdate > 12 * 60 * 60 * 1000);
                         
     if (!needsRefresh && reportData.protectedMemberNames.size > 0) {
       console.log(`Using cached protected members (${reportData.protectedMemberNames.size})`);
@@ -251,45 +250,81 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
     }
     
     console.log('Updating protected members cache...');
+    console.log(`Protected role IDs from config: ${config.PROTECTED_ROLE_IDS}`);
     
     // Clear the current cache
     reportData.protectedMemberNames.clear();
     
-    // Get members with protected roles more efficiently
+    // Validate that we have protected role IDs
+    if (!config.PROTECTED_ROLE_IDS || config.PROTECTED_ROLE_IDS.length === 0) {
+      console.warn('No protected role IDs found in config!');
+      return;
+    }
+    
+    // Get members with protected roles
     for (const roleId of config.PROTECTED_ROLE_IDS) {
+      console.log(`Processing protected role ID: ${roleId}`);
+      
       const role = guild.roles.cache.get(roleId);
-      if (!role) continue;
+      if (!role) {
+        console.warn(`Role with ID ${roleId} not found in guild cache`);
+        continue;
+      }
       
       try {
-        // Fetch members specifically for this role - much more efficient
+        // Fetch members specifically for this role
         const roleMembers = await guild.members.fetch({ role: roleId, limit: 100 });
+        
+        console.log(`Found ${roleMembers.size} members with role ${role.name}`);
         
         roleMembers.forEach(member => {
           if (!reportData.protectedMemberNames.has(member.id)) {
-            reportData.protectedMemberNames.set(member.id, {
+            const memberData = {
               displayName: member.displayName.toLowerCase(),
               username: member.user.username.toLowerCase(),
               globalName: member.user.globalName ? member.user.globalName.toLowerCase() : null,
+              avatarHash: member.user.avatar, // Store avatar hash for comparison
               roleId: roleId,
               roleName: role.name
-            });
+            };
+            
+            reportData.protectedMemberNames.set(member.id, memberData);
+            console.log(`Added protected member: ${member.displayName} with role ${role.name}`);
           }
         });
         
-        console.log(`Added ${roleMembers.size} members with role ${role.name}`);
       } catch (error) {
-        console.error(`Error fetching members with role ${role.name}:`, error.message);
+        console.error(`Error fetching members with role ${roleId}:`, error.message);
       }
     }
     
     // Update timestamp
     reportData.lastProtectedMembersUpdate = Date.now();
     
-    console.log(`Updated protected members cache with ${reportData.protectedMemberNames.size} members`);
+    console.log(`Updated protected members cache with ${reportData.protectedMemberNames.size} members total`);
+    
   } catch (error) {
     console.error('Error updating protected members cache:', error);
   }
 }
+
+// Enhanced suspicious bio patterns (you already have these, but here are some additions)
+const ADDITIONAL_BIO_PATTERNS = [
+  // Admin/Staff impersonation in bio
+  /(?:admin|moderator|staff|support).*(?:here|available|contact)/i,
+  /(?:official|verified).*(?:admin|moderator|staff)/i,
+  /dm.*(?:for|about).*(?:support|help|assistance)/i,
+  
+  // Contact information that shouldn't be in bios
+  /telegram.*@[\w_]+/i,
+  /whatsapp.*\+?\d{1,3}/i,
+  /discord.*[\w.-]+#\d{4}/i,
+  
+  // Scam indicators
+  /(?:winner|congratulations).*(?:airdrop|giveaway)/i,
+  /click.*(?:link|here).*(?:claim|verify)/i,
+  /limited.*time.*(?:offer|opportunity)/i
+];
 
   // Utility function: Calculate string similarity (Levenshtein distance based)
   function calculateStringSimilarity(str1, str2) {
@@ -331,97 +366,72 @@ async function updateProtectedMembersCache(guild, forceRefresh = false) {
   }
 
   // Check if a name is similar to a protected member
-  function checkForImpersonation(memberToCheck) {
-
-    // First check if the member being checked has a protected role
-    // If they do, they cannot be an impersonator
-    if (hasProtectedRole(memberToCheck)) {
-      return null; // Not an impersonator if they have a protected role
-    }
-    // Nothing to check if we haven't cached protected members
-    if (reportData.protectedMemberNames.size === 0) {
-      return null;
-    }
-    
-    // Get the names to check
-    const displayName = memberToCheck.displayName.toLowerCase();
-    const username = memberToCheck.user.username.toLowerCase();
-    const globalName = memberToCheck.user.globalName ? memberToCheck.user.globalName.toLowerCase() : null;
-    
-    // Check against all protected members
-    for (const [protectedId, protectedData] of reportData.protectedMemberNames.entries()) {
-      // Skip if this is actually the protected member
-      if (memberToCheck.id === protectedId) {
-        continue;
-      }
-      
-      const similarityResults = [];
-      
-      // Check direct equality first
-      if (displayName === protectedData.displayName || 
-          username === protectedData.username ||
-          (globalName && globalName === protectedData.globalName)) {
-        return {
-          impersonatedUserId: protectedId,
-          impersonatedName: protectedData.displayName,
-          impersonatedRole: protectedData.roleName,
-          similarityType: 'exact match',
-          similarityScore: 1.0
-        };
-      }
-      
-      // Check for high similarity
-      // Display name similarity
-      const displayNameSimilarity = calculateStringSimilarity(displayName, protectedData.displayName);
-      if (displayNameSimilarity > 0.9) {
-        similarityResults.push({
-          score: displayNameSimilarity,
-          type: 'display name',
-          impersonatedName: protectedData.displayName
-        });
-      }
-      
-      // Username similarity
-      const usernameSimilarity = calculateStringSimilarity(username, protectedData.username);
-      if (usernameSimilarity > 0.9) {
-        similarityResults.push({
-          score: usernameSimilarity,
-          type: 'username',
-          impersonatedName: protectedData.username
-        });
-      }
-      
-      // Global name similarity
-      if (globalName && protectedData.globalName) {
-        const globalNameSimilarity = calculateStringSimilarity(globalName, protectedData.globalName);
-        if (globalNameSimilarity > 0.9) {
-          similarityResults.push({
-            score: globalNameSimilarity,
-            type: 'global name',
-            impersonatedName: protectedData.globalName
-          });
-        }
-      }
-      
-      // If we found any high similarity
-      if (similarityResults.length > 0) {
-        // Take the highest similarity result
-        const bestMatch = similarityResults.reduce((highest, current) => 
-          current.score > highest.score ? current : highest, similarityResults[0]);
-          
-        return {
-          impersonatedUserId: protectedId,
-          impersonatedName: bestMatch.impersonatedName,
-          impersonatedRole: protectedData.roleName,
-          similarityType: bestMatch.type,
-          similarityScore: bestMatch.score
-        };
-      }
-    }
-    
-    // No impersonation found
+function checkForImpersonation(memberToCheck) {
+  // First check if the member being checked has a protected role
+  if (hasProtectedRole(memberToCheck)) {
+    return null; // Not an impersonator if they have a protected role
+  }
+  
+  // Nothing to check if we haven't cached protected members
+  if (reportData.protectedMemberNames.size === 0) {
     return null;
   }
+  
+  // Get the primary identifiers
+  const displayName = memberToCheck.displayName.toLowerCase();
+  const avatarHash = memberToCheck.user.avatar;
+  
+  // Check against all protected members
+  for (const [protectedId, protectedData] of reportData.protectedMemberNames.entries()) {
+    // Skip if this is actually the protected member themselves
+    if (memberToCheck.id === protectedId) {
+      continue;
+    }
+    
+    let suspicionScore = 0;
+    let matchDetails = [];
+    
+    // 1. DISPLAY NAME MATCH (Primary check - most important)
+    if (displayName === protectedData.displayName) {
+      suspicionScore += 10; // Exact match = immediate flag
+      matchDetails.push('exact display name match');
+    } else {
+      // Check for high similarity in display name
+      const similarity = calculateStringSimilarity(displayName, protectedData.displayName);
+      if (similarity > 0.85) {
+        suspicionScore += (similarity * 8); // Scale by similarity
+        matchDetails.push(`${Math.round(similarity * 100)}% display name similarity`);
+      }
+    }
+    
+    // 2. AVATAR SIMILARITY CHECK (if we have both avatars)
+    if (avatarHash && protectedData.avatarHash) {
+      if (avatarHash === protectedData.avatarHash) {
+        suspicionScore += 8; // Same avatar = very suspicious
+        matchDetails.push('identical avatar');
+      }
+      // Note: We can't easily compare avatar images without downloading and processing them
+      // The hash comparison catches exact matches (someone using same image)
+    }
+    
+    // 3. BIO SUSPICIOUS PATTERNS (already covered in calculateSuspiciousnessScore)
+    // This is handled separately in the suspiciousness scoring
+    
+    // If suspicion score is high enough, flag as impersonator
+    if (suspicionScore >= 6) {
+      return {
+        impersonatedUserId: protectedId,
+        impersonatedName: protectedData.displayName,
+        impersonatedRole: protectedData.roleName,
+        similarityType: matchDetails.join(', '),
+        similarityScore: Math.min(suspicionScore / 10, 1.0), // Convert to 0-1 scale
+        suspicionScore: suspicionScore
+      };
+    }
+  }
+  
+  return null;
+}
 
   // Calculate suspiciousness score with focus on bio links
   function calculateSuspiciousnessScore(member) {
