@@ -63,9 +63,9 @@ client.once('ready', async () => {
   // Start the monitoring interval for transactions
   monitorIntervalId = setInterval(() => checkTransfers(client), config.POLL_INTERVAL);
   
-  const dryRun = true; // TOGGLE THIS FOR DRY RUN MODE
-  impersonationDetector = setupImpersonationDetection(client, { dryRun });  
-  console.log('Bot startup complete. Impersonation scan will run in 5 seconds...');
+  //const dryRun = true; // TOGGLE THIS FOR DRY RUN MODE
+  //impersonationDetector = setupImpersonationDetection(client, { dryRun });  
+  console.log('Bot startup complete.');// Impersonation scan will run in 5 seconds...');
 });
 
 client.on('messageCreate', handleMessage);
