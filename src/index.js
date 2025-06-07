@@ -6,7 +6,7 @@ const path = require('path');
 const { checkTransfers } = require('./transactionMonitor');
 const config = require('./config');
 const { handleMessage, celebratoryGifs } = require('./messageHandlers');
-const { setupReportingSystem } = require('./reportingSystem');
+const { setupImpersonationDetection } = require('./reportingSystem');
 const { REST, Routes } = require('discord.js');
 const { isAboveBaseRole, canBeModerated } = require('./utils');
 fs.writeFileSync('bot.pid', process.pid.toString());
@@ -19,7 +19,7 @@ const client = new Client({
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers
-  ],
+    ],
 });
 
 client.commands = new Collection();
@@ -55,6 +55,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
 })();
 
 let monitorIntervalId = null;
+let impersonationDetector = null;
 
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}!`);
@@ -62,10 +63,10 @@ client.once('ready', async () => {
   // Start the monitoring interval for transactions
   monitorIntervalId = setInterval(() => checkTransfers(client), config.POLL_INTERVAL);
   
-  // Set up the reporting system
-  setupReportingSystem(client);
+  // Set up the impersonation detection system - CHANGED
+  impersonationDetector = setupImpersonationDetection(client);
   
-  console.log('Bot startup complete. Initial security scan will run in 5 seconds...');
+  console.log('Bot startup complete. Impersonation scan will run in 5 seconds...');
 });
 
 client.on('messageCreate', handleMessage);
@@ -89,12 +90,15 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
 
   if (interaction.customId.startsWith('ban_')) {
-    const [_, userId, deleteFlag] = interaction.customId.split('_');
+    const parts = interaction.customId.split('_');
+    const userId = parts[1];
+    const banType = parts[2];
+    
     const guild = interaction.guild;
     const moderator = interaction.member;
 
     try {
-        const targetMember = await guild.members.fetch(userId);
+        const targetMember = await guild.members.fetch(userId).catch(() => null);
         
         if (!isAboveBaseRole(moderator)) {
           await interaction.reply({ 
@@ -104,7 +108,8 @@ client.on('interactionCreate', async interaction => {
           return;
         }
 
-        if (!canBeModerated(targetMember, moderator)) {
+        // If member exists, check if they can be moderated
+        if (targetMember && !canBeModerated(targetMember, moderator)) {
           await interaction.reply({ 
             content: "This user cannot be banned due to role hierarchy or protected status.", 
             flags: MessageFlags.Ephemeral
@@ -113,47 +118,54 @@ client.on('interactionCreate', async interaction => {
         }
 
         // Proceed with ban...
+        const banReason = banType === 'impersonator' 
+          ? 'Banned for impersonating protected member' 
+          : 'Banned due to suspicious activity';
+          
         await guild.members.ban(userId, { 
           deleteMessageSeconds: 7 * 24 * 60 * 60,
-          reason: 'Banned due to suspicious activity' 
+          reason: banReason 
         });
           
-          // Log the action in the thread
-          const logEmbed = new EmbedBuilder()
-              .setColor('#FF0000')
-              .setTitle('User Banned')
-              .setDescription(`User <@${targetMember.user.tag}(${userId})> has been banned and their messages from the last 7 days have been deleted.`)
-              .addFields(
-                  { name: 'Banned by', value: `${moderator.user.tag} (${moderator.id})` },
-                  { name: 'Ban Time', value: new Date().toUTCString() }
-              );
-          
-          await interaction.reply({ embeds: [logEmbed] });
+        // Log the action
+        const logEmbed = new EmbedBuilder()
+            .setColor('#FF0000')
+            .setTitle('User Banned')
+            .setDescription(`User ${targetMember ? targetMember.user.tag : 'Unknown User'} (${userId}) has been banned and their messages from the last 7 days have been deleted.`)
+            .addFields(
+                { name: 'Banned by', value: `${moderator.user.tag} (${moderator.id})` },
+                { name: 'Ban Time', value: new Date().toUTCString() },
+                { name: 'Reason', value: banReason }
+            );
+        
+        await interaction.reply({ embeds: [logEmbed] });
 
-          // Send a random celebratory GIF
-          const randomGif = celebratoryGifs[Math.floor(Math.random() * celebratoryGifs.length)];
-          await interaction.followUp({ 
-              content: `Nice Ban! Mission accomplished! 🎉`, 
-              files: [randomGif] 
-          });
-          
-          // Archive the thread
+        // Send a random celebratory GIF
+        const randomGif = celebratoryGifs[Math.floor(Math.random() * celebratoryGifs.length)];
+        await interaction.followUp({ 
+            content: `Nice Ban! ${banType === 'impersonator' ? 'Impersonator eliminated!' : 'Mission accomplished!'} 🎉`, 
+            files: [randomGif] 
+        });
+        
+        // Archive the thread if in a thread
+        if (interaction.channel.isThread()) {
           await interaction.channel.setArchived(true, 'User has been banned');
-        } catch (error) {
-          console.error('Failed to ban user:', error);
-          
-          if (error.code === 10007) {
-            await interaction.reply({ 
-              content: 'Cannot ban this user: they may have already left the server or been banned.', 
-              flags: MessageFlags.Ephemeral
-            });
-          } else {
-            await interaction.reply({ 
-              content: `Failed to ban user: ${error.message}. Please check logs for more details.`, 
-              flags: MessageFlags.Ephemeral
-            });
-          }
         }
+      } catch (error) {
+        console.error('Failed to ban user:', error);
+        
+        if (error.code === 10007) {
+          await interaction.reply({ 
+            content: 'Cannot ban this user: they may have already left the server or been banned.', 
+            flags: MessageFlags.Ephemeral
+          });
+        } else {
+          await interaction.reply({ 
+            content: `Failed to ban user: ${error.message}. Please check logs for more details.`, 
+            flags: MessageFlags.Ephemeral
+          });
+        }
+      }
   }
 });
 
@@ -168,6 +180,11 @@ function gracefulShutdown() {
   // Clear the monitoring interval
   if (monitorIntervalId) {
     clearInterval(monitorIntervalId);
+  }
+  
+  // Clear any intervals from impersonation detector
+  if (client.cleanupImpersonationDetector) {
+    client.cleanupImpersonationDetector();
   }
   
   // Destroy the Discord client connection
