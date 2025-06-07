@@ -6,7 +6,7 @@ const path = require('path');
 const { checkTransfers } = require('./transactionMonitor');
 const config = require('./config');
 const { handleMessage, celebratoryGifs } = require('./messageHandlers');
-const { setupImpersonationDetection } = require('./impersonationDetector'); // CHANGED: New import
+const { setupImpersonationDetection } = require('./reportingSystem');
 const { REST, Routes } = require('discord.js');
 const { isAboveBaseRole, canBeModerated } = require('./utils');
 fs.writeFileSync('bot.pid', process.pid.toString());
@@ -18,9 +18,8 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildPresences
-  ],
+    GatewayIntentBits.GuildMembers
+    ],
 });
 
 client.commands = new Collection();
