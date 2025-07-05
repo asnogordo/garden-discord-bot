@@ -5,10 +5,12 @@ const fs = require('fs');
 const path = require('path');
 const { checkTransfers } = require('./transactionMonitor');
 const config = require('./config');
-const { handleMessage, celebratoryGifs } = require('./messageHandlers');
+const { handleMessage, celebratoryGifs, apologyGifs  } = require('./messageHandlers');
 const { setupImpersonationDetection } = require('./reportingSystem');
 const { REST, Routes } = require('discord.js');
 const { isAboveBaseRole, canBeModerated } = require('./utils');
+const { addToWhitelist, isWhitelisted } = require('./whitelist');
+
 fs.writeFileSync('bot.pid', process.pid.toString());
 
 
@@ -116,6 +118,14 @@ client.on('interactionCreate', async interaction => {
           return;
         }
 
+        if (isWhitelisted(userId)) {
+          await interaction.reply({ 
+            content: `⚠️ **Cannot ban whitelisted user!**\n\nUser ${targetMember ? targetMember.user.tag : 'Unknown User'} (${userId}) is on the whitelist and cannot be banned. Please remove them from the whitelist first if you believe this ban is necessary.`, 
+            flags: MessageFlags.Ephemeral
+          });
+          return;
+        }
+
         // Proceed with ban...
         const banReason = banType === 'impersonator' 
           ? 'Banned for impersonating protected member' 
@@ -165,6 +175,130 @@ client.on('interactionCreate', async interaction => {
           });
         }
       }
+  }
+  
+  if (interaction.customId.startsWith('whitelist_')) {
+    const parts = interaction.customId.split('_');
+    const userId = parts[1];
+    const username = parts.slice(2).join('_');
+    
+    const moderator = interaction.member;
+
+    try {
+      // Check if moderator has permission
+      if (!isAboveBaseRole(moderator)) {
+        await interaction.reply({ 
+          content: "You don't have permission to whitelist users.", 
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      // Check if user is already whitelisted
+      if (isWhitelisted(userId)) {
+        await interaction.reply({ 
+          content: `User ${username} is already whitelisted.`, 
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      // Fetch user and member details BEFORE calling addToWhitelist
+      let displayName = username;
+      let userTag = username;
+      let avatarURL = null;
+      
+      try {
+        const user = await interaction.client.users.fetch(userId);
+        userTag = user.tag;
+        avatarURL = user.displayAvatarURL({ dynamic: true });
+        
+        try {
+          const member = await interaction.guild.members.fetch(userId);
+          displayName = member.displayName;
+        } catch (e) {
+          console.log(`Could not fetch member ${userId}: ${e.message}`);
+        }
+      } catch (e) {
+        console.log(`Could not fetch user ${userId}: ${e.message}`);
+      }
+
+      // Add user to whitelist
+      const result = addToWhitelist(
+        userId, 
+        username, 
+        `${moderator.user.tag} (${moderator.id})`,
+        'Whitelisted via Discord bot button',
+        displayName
+      );
+
+      if (result.success) {
+        // Create success embed
+        const successEmbed = new EmbedBuilder()
+          .setColor('#00FF00')
+          .setTitle('User Whitelisted')
+          .setDescription(`**${displayName}** has been added to the whitelist.`)
+          .addFields(
+            { name: 'Display Name', value: displayName, inline: true },
+            { name: 'Username', value: userTag, inline: true },
+            { name: 'User ID', value: userId, inline: true },
+            { name: 'Whitelisted by', value: `${moderator.user.tag} (${moderator.id})`, inline: true },
+            { name: 'Whitelist Time', value: new Date().toUTCString(), inline: true },
+            { name: 'Reason', value: 'Manual whitelist via moderation panel', inline: false }
+          );
+        
+        if (avatarURL) {
+          successEmbed.setThumbnail(avatarURL);
+        }
+        
+        await interaction.reply({ embeds: [successEmbed] });
+
+        // Send a random apology GIF
+        const randomApologyGif = apologyGifs[Math.floor(Math.random() * apologyGifs.length)];
+        const apologyMessages = [
+          "My bad! False alarm 😅",
+          "You're all good! 👍",
+          "Oops, our mistake! 🤖",
+          "False positive - you're cool! ✨",
+          "Sorry about that! All clear now 🌱",
+          "Bot had a brain fart - you're legit! 🧠💨",
+          "My bad, chief! 🫡",
+          "You good, fam! ✌️",
+          "False alarm - carry on! 🚨❌"
+        ];
+        
+        const randomApologyMessage = apologyMessages[Math.floor(Math.random() * apologyMessages.length)];
+        
+        await interaction.followUp({ 
+          content: randomApologyMessage,
+          files: [randomApologyGif]
+        });
+
+        // Archive the thread if in a thread (after the gif)
+        if (interaction.channel.isThread()) {
+          // Small delay to let the gif load before archiving
+          setTimeout(async () => {
+            try {
+              await interaction.channel.send('User has been whitelisted. This thread will be archived.');
+              await interaction.channel.setArchived(true, 'User has been whitelisted');
+            } catch (error) {
+              console.error('Error archiving thread:', error);
+            }
+          }, 2000); // 2 second delay
+        }
+      } else {
+        await interaction.reply({ 
+          content: `Failed to whitelist user: ${result.message}`, 
+          flags: MessageFlags.Ephemeral
+        });
+      }
+    } catch (error) {
+      console.error('Failed to whitelist user:', error);
+      await interaction.reply({ 
+        content: `An error occurred while whitelisting the user: ${error.message}`, 
+        flags: MessageFlags.Ephemeral
+      });
+    }
   }
 });
 
