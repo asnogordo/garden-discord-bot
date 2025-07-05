@@ -2,13 +2,24 @@
 const fs = require('fs');
 const path = require('path');
 
-const WHITELIST_FILE = path.join(__dirname, 'whitelist.json');
+const WHITELIST_FILE = path.join(__dirname, '../data/whitelist.json');
 
 // Initialize whitelist file if it doesn't exist
 function initWhitelist() {
+  console.log(`[WHITELIST DEBUG] Checking for whitelist file at: ${WHITELIST_FILE}`);
+  console.log(`[WHITELIST DEBUG] Current working directory: ${process.cwd()}`);
+  console.log(`[WHITELIST DEBUG] __dirname: ${__dirname}`);
+  
   if (!fs.existsSync(WHITELIST_FILE)) {
-    fs.writeFileSync(WHITELIST_FILE, JSON.stringify({ users: [] }, null, 2));
-    console.log('Created whitelist.json file');
+    console.log(`[WHITELIST DEBUG] File doesn't exist, creating it...`);
+    try {
+      fs.writeFileSync(WHITELIST_FILE, JSON.stringify({ users: [] }, null, 2));
+      console.log(`[WHITELIST DEBUG] Successfully created whitelist.json file at: ${WHITELIST_FILE}`);
+    } catch (error) {
+      console.error(`[WHITELIST DEBUG] Failed to create whitelist file:`, error);
+    }
+  } else {
+    console.log(`[WHITELIST DEBUG] Whitelist file already exists`);
   }
 }
 

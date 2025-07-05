@@ -15,8 +15,7 @@
             "envFile": "${workspaceFolder}/.env",
             "env": {
                 "NODE_ENV": "development"
-            },
-            "runtimeVersion": "22.14.0",
+            }
         }
     ]
 }
