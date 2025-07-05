@@ -10,10 +10,8 @@ const { setupImpersonationDetection } = require('./reportingSystem');
 const { REST, Routes } = require('discord.js');
 const { isAboveBaseRole, canBeModerated } = require('./utils');
 const { addToWhitelist, isWhitelisted } = require('./whitelist');
-const { SCAM_CHANNEL_ID } = require('./config');
 
 fs.writeFileSync('bot.pid', process.pid.toString());
-
 
 const client = new Client({
   intents: [
@@ -186,15 +184,6 @@ client.on('interactionCreate', async interaction => {
     const moderator = interaction.member;
 
     try {
-
-      // Only allow in threads from the scam channel
-      if (interaction.channel.parentId !== SCAM_CHANNEL_ID) {
-        await interaction.reply({
-          content: "⚠️ Whitelist commands can only be used in scam report threads.",
-          flags: MessageFlags.Ephemeral
-        });
-        return;
-      }
       // Check if moderator has permission
       if (!isAboveBaseRole(moderator)) {
         await interaction.reply({ 
