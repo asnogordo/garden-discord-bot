@@ -10,6 +10,8 @@ const {
   ADDRESSES_EMBEDDED_MSG, 
   createWarningMessageEmbed
 } = require('./embeds');
+const { isWhitelisted } = require('./whitelist');
+
 
 // Compile regex patterns once at startup
 const excludedPatterns = EXCLUDED_CHANNEL_PATTERNS.map(pattern => new RegExp(pattern));
@@ -204,6 +206,17 @@ const celebratoryGifs = [
   'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExMmg2NGJicjA3ZHA0Ym5ia2Y1MTc5ZWZvbnM5cTQxMTJvYWw1ZnlwdSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/8nM6YNtvjuezzD7DNh/giphy.gif'
 ];
 
+const apologyGifs = [
+  'https://c.tenor.com/Sa0y6S5GZlMAAAAd/tenor.gif',
+  'https://c.tenor.com/QoqW6ZUsiLIAAAAd/tenor.gif', 
+  'https://c.tenor.com/Y-PfzRB9q0sAAAAj/tenor.gif',
+  'https://c.tenor.com/eaAyTvhJ5hkAAAAj/tenor.gif',
+  'https://c.tenor.com/H_TmmVKOv1QAAAAd/tenor.gif',
+  'https://c.tenor.com/_8OB_3dYT2MAAAAd/tenor.gif',
+  'https://c.tenor.com/pu_KUvY2wxIAAAAd/tenor.gif',
+  'https://c.tenor.com/WG43Fcsm2dkAAAAd/tenor.gif'
+];
+
 const pickMoon = pickFromList(wenMoonGifs);
 const pickLambo = pickFromList(wenLamboGifs);
 const pickMeaningOfLife = pickFromList(meaningOfLifeGifs);
@@ -267,24 +280,30 @@ async function handleMessage(message) {
 
     // Process messages for non-protected users
     if (!isProtected) {
-      // First check for unauthorized URLs
-      const hasUnauthorizedUrls = hasUnauthorizedUrl(message, guild);
-      
-      // If there are unauthorized URLs, handle them
-      if (hasUnauthorizedUrls) {
-        await handleUnauthorizedUrl(message);
-        return;
-      }
-      
-      // Then proceed with scam detection, which can assume URLs are already validated
-      await handleScamMessage(message);
-      
-      // Check if message was deleted by scam handler
-      try {
-        await message.channel.messages.fetch(message.id);
-      } catch (e) {
-        // Message was deleted, stop processing
-        return;
+      // Check if user is whitelisted
+      if (isWhitelisted(author.id)) {
+        console.log(`User ${author.tag} is whitelisted, skipping all checks`);
+      } 
+      else {
+        // First check for unauthorized URLs
+        const hasUnauthorizedUrls = hasUnauthorizedUrl(message, guild);
+        
+        // If there are unauthorized URLs, handle them
+        if (hasUnauthorizedUrls) {
+          await handleUnauthorizedUrl(message);
+          return;
+        }
+        
+        // Then proceed with scam detection, which can assume URLs are already validated
+        await handleScamMessage(message);
+        
+        // Check if message was deleted by scam handler
+        try {
+          await message.channel.messages.fetch(message.id);
+        } catch (e) {
+          // Message was deleted, stop processing
+          return;
+        }
       }
     }
     
@@ -383,6 +402,12 @@ async function handleScamMessage(message) {
     console.log(`\n==== SCAM CHECK: ${author.tag} ====`);
     console.log(`Message: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`);
     console.log(`Channel: ${channel.name} (${channel.id})`);
+
+    // Check if user is whitelisted
+    if (isWhitelisted(author.id)) {
+      console.log(`SKIPPED: User is whitelisted`);
+      return false;
+    }
     
     // Skip for users with protected roles
     if (hasProtectedRole(member)) {
@@ -778,7 +803,12 @@ async function sendThreadedReport(reportChannel, author, warningMessageEmbed) {
       .setLabel('Ban User')
       .setStyle(ButtonStyle.Danger);
 
-    const actionRow = new ActionRowBuilder().addComponents(banButton);
+        const whitelistButton = new ButtonBuilder()
+      .setCustomId(`whitelist_${author.id}_${author.tag}`)
+      .setLabel('Whitelist User')
+      .setStyle(ButtonStyle.Success);
+
+    const actionRow = new ActionRowBuilder().addComponents(banButton, whitelistButton);
 
     await thread.send({
       content: `Suspicious activity detected for user ${author.tag} (${author.id})`,
@@ -1074,6 +1104,10 @@ function detectUrlObfuscation(content) {
 function hasUnauthorizedUrl(message, guild) {
   const content = message.content;
 
+    // Skip URL checking for whitelisted users
+  if (isWhitelisted(message.author.id)) {
+    return false;
+  }
   // Skip if the message only contains a Discord sticker or a gif
   const isOnlySticker = message.stickers && message.stickers.size > 0 && !content.trim();
   const isOnlyGif = message.embeds && 
@@ -1628,6 +1662,7 @@ module.exports = {
   addSuspectedScammer,
   quarantineMessage,
   celebratoryGifs,
+  apologyGifs,
   suspiciousUserThreads,
   setupReportingSystem,
   detectUrlObfuscation,
