@@ -110,7 +110,7 @@ const scamPatterns = [
   /\b(?:dev(?:eloper)?s?|testers?|analysts?|writers?|moderators?|designers?)\s+(?:\$\d+[-+]?\d*[kK]?\+?\s*\/\s*(?:week|month|year)|needed)/i,
   /platform\s+(?:looking|hiring|searching|seeking)\s+for/i,
   /\b(?:AI|ML|DeFi|Crypto|NFT|Web3)\s+(?:platform|project|company)\s+(?:hiring|recruiting|looking)/i,
-  /\b(?:dm|support|support ticket)\b(?!.*#raise-a-ticket)/i,
+  /\b(?:dm|message|contact)\s+(?:me|us|admin|support)\s+(?:for|about|regarding)\s+(?:help|support|assistance|ticket)/i,
   /create a ticket .* https:\/\/discord\.com\/invite\//i,
   /create a ticket .* https:\/\/discord\.gg\//i,
   /\b(?:reach out to|contact) .* (?:live support|support desk)\b/i,
@@ -138,7 +138,7 @@ const howToGetSeed = /(?:how|where).*(?:get|buy|purchase|acquire|swap for).*seed
 const wenVote = /.*(wh?en) .*(vote|voting).*/i;
 const wenMoon = /.*(wh?en|where).*moon.*/i;
 const wenLambo = /.*(wh?en|where).*lambo.*/i;
-const wenNetwork = /.*wh?en\s+(optimism|op|binance|bnb|gnosis|avax|avalanche|sol|hyper|solana|monad|hyperliquid|hl).*/i;
+const wenNetwork = /.*wh?en\s+(optimism|op|binance|bnb|gnosis|avax|avalanche|sol|solana|monad).*/i;
 const meaningOfLife = /.*meaning of life.*/i;
 const contractAddress = /(?:.*(?:contract|token).*address.*)|(?:.*seed.*(?:contract|token|address).*)|(?:.*address.*(?:for|of).*seed.*)/i;
 const totalSupply = /.*(total|max|maximum|token|seed) supply.*/i;
