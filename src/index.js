@@ -13,7 +13,6 @@ const { addToWhitelist, isWhitelisted } = require('./whitelist');
 
 fs.writeFileSync('bot.pid', process.pid.toString());
 
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,

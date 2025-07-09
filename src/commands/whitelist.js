@@ -2,6 +2,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { addToWhitelist, removeFromWhitelist, isWhitelisted, getWhitelistInfo, getAllWhitelisted } = require('../whitelist');
 const { isAboveBaseRole } = require('../utils');
+const { SCAM_CHANNEL_ID } = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -58,6 +59,15 @@ module.exports = {
       await interaction.reply({ 
         content: "You don't have permission to use this command.", 
         ephemeral: true 
+      });
+      return;
+    }
+    
+    // Check if command is being used in the scam channel or its threads
+    if (interaction.channel.parentId !== SCAM_CHANNEL_ID && interaction.channelId !== SCAM_CHANNEL_ID) {
+      await interaction.reply({
+        content: "⚠️ Whitelist commands can only be used in the scam reports channel or its threads.",
+        ephemeral: true
       });
       return;
     }
