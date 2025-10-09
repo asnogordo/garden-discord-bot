@@ -1,3 +1,4 @@
+//transactionMonitor.js - track onchain transactions
 const { Web3 } = require('web3');
 const { EmbedBuilder } = require('discord.js');
 const axios = require('axios');

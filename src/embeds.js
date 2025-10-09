@@ -1,3 +1,4 @@
+//embeds.js - embed helper
 const { EmbedBuilder } = require('discord.js');
 
 // Color constants for consistent styling

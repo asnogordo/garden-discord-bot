@@ -71,6 +71,35 @@ client.once('ready', async () => {
 
 client.on('messageCreate', handleMessage);
 
+client.on('messageReactionAdd', async (reaction, user) => {
+  // Handle partial reactions
+  if (reaction.partial) {
+    try {
+      await reaction.fetch();
+    } catch (error) {
+      console.error('Error fetching reaction:', error);
+      return;
+    }
+  }
+  
+  // Import and call the handler
+  const { handleReactionDismiss } = require('./messageHandlers');
+  await handleReactionDismiss(reaction, user);
+});
+
+// Clean up old tracked messages periodically (once per hour)
+setInterval(() => {
+  const { botResponseMessages } = require('./messageHandlers');
+  const now = Date.now();
+  const ONE_HOUR = 60 * 60 * 1000;
+  
+  for (const [messageId, data] of botResponseMessages.entries()) {
+    if (now - data.timestamp > ONE_HOUR) {
+      botResponseMessages.delete(messageId);
+    }
+  }
+}, 60 * 60 * 1000);
+
 client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 

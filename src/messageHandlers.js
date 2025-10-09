@@ -64,6 +64,7 @@ let lastReportTime = new Date().setHours(0, 0, 0, 0);
 
 //message locking to reduce race conditions
 const processingLock = new Set();
+const botResponseMessages = new Map(); // Track bot auto-responses for dismiss functionality
 
 // Regex patterns
 const noGmAllowed = /^\s*(gn|gm)\s*$/i;
@@ -129,6 +130,16 @@ const scamPatterns = [
   /create.*ticket.*(?:https|discord\.gg)/i,
   /(?:👆|👇|👉).*https/i,
   /https.*(?:👆|👇|👉)/i,
+  /(?:developer|dev|engineer|programmer)\s+(?:who|with)\s+(?:enjoys|experience|expertise)/i,
+  /(?:blockchain|web3|defi|smart contract|solidity|rust)\s+(?:developer|dev|engineer)/i,
+  /(?:full[\s-]?stack|fullstack).*(?:blockchain|web3)/i,
+  /(?:frontend|backend|full[\s-]?stack).*(?:react|vue|angular|node|django|express)/i,
+  /(?:specializ(?:e|ing)|focus(?:ed|ing)|experience)\s+in\s+(?:building|developing|creating)/i,
+  /if\s+you(?:'re|\s+are)\s+(?:working on|interested in|looking for).*(?:ambitious|developer|development|team)/i,
+  /(?:toolkit|skill(?:s|set)|tech stack|main skill).*(?:solidity|rust|web3|blockchain)/i,
+  /(?:8|5|10)\+?\s*years?\s+(?:of\s+)?experience/i,
+  /please\s+(?:feel\s+free\s+to\s+)?contact\s+me/i,
+  /(?:open\s+to|available\s+for|looking\s+for).*(?:collaboration|projects|opportunities|joining)/i,
 ];
 
 const urlPattern = /https?:\/\/([^\/\s]+)([^\s]*)/gi;
@@ -307,69 +318,145 @@ async function handleMessage(message) {
       }
     }
     
-    if (wenMoon.test(message.content)) {
-      await message.reply(pickMoon());
-    } else if (wenLambo.test(message.content)) {
-      await message.reply(pickLambo());
-    } else if (meaningOfLife.test(message.content)) {
-      await message.reply(pickMeaningOfLife());
-    } else if (wenNetwork.test(message.content)) {
-      await message.reply(pickWorkingOnIt());
-    } else if (wenDuneAnalytics.test(message.content)) {
-      await message.reply(
-        "Check out the official dune dashboard 📊 here: <https://dune.com/garden_finance/gardenfinance>"
-      );
-    } else if (wenDude.test(message.content)) {
-      await message.reply(pickDude());
-    } else if (wenStake.test(message.content)) {
-      await message.reply(
-        'You can stake in increments of 2,100 SEED for 6 month, 12 month, 24 months, 48 months or permanently.\nYou can also burn 21,000 SEED for an Gardener Pass NFT for maximum voting power.\n\n For more info, and to start staking, visit <https://app.garden.finance/stake/>.'
-      );
-    } else if (wenVote.test(message.content)) {
-      await message.reply(
-        'Garden Snapshot can be found at <https://snapshot.org/#/gardenfinance.eth>. SEED stakers will eventually be able to vote on their favorite fillers. For more details, check out <https://garden.finance/blog/market-making-and-staking/>',
-      );
-    } else if (contractAddress.test(message.content)) {
-      await message.channel.send({ embeds: [ADDRESSES_EMBEDDED_MSG] });
-    } else if (totalSupply.test(message.content)) {
-      await message.reply(
-        "SEED's total supply is 147,000,000.\n\nKeep in mind not everything will be in circulation at launch. For more info, check <https://garden.finance/blog/wbtc-garden-introducing-seed/>",
-      );
-    } else if (howToGetSeed.test(message.content)) {
-      await message.reply(
-        "You can swap for SEED on Cowswap 🐮\n\n" +
-        "**Ethereum:**\n" +
-        "<https://swap.cow.fi/#/1/swap/WETH/0x5eed99d066a8CaF10f3E4327c1b3D8b673485eED>\n\n" +
-        "View the ERC20 contract address for SEED on Etherscan: <https://etherscan.io/token/0x5eed99d066a8CaF10f3E4327c1b3D8b673485eED>"
-      );
-    } else if (howToStakeOrClaim.test(message.content)) {
-      await message.reply(
-        "Stake SEED 🌱 to earn fees in BTC or to claim BTC rewards, visit <https://app.garden.finance/stake/>\n\n",
-      );
-    } else if (wenDefillama.test(message.content)) {
-      await message.reply(
-        "Garden's 🌸 Defillama page can be found here:\n<https://defillama.com/protocol/garden>",
-      );
-    } else if (gardenExplorer.test(message.content)) {
-      await message.reply(
-        "You can check your transaction status at Garden's explorer page 🌸: <https://explorer.garden.finance/>"
-      );
-    } else if (stakingIssues.test(message.content)) {
-      await message.reply(`If you are having issues with staking, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
-    } else if (swapIssues.test(message.content)) {
-      await message.reply(`If you're experiencing issues with an in progress swap, please open a support ticket in <#${SUPPORT_CHANNEL_ID}> and include your order ID.`);
-    } else if (claimingIssues.test(message.content)) {
-      await message.reply(`If you are having issues claiming $SEED, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
-    } else if (orderIssues.test(message.content) || transactionIssues.test(message.content)) {
-      await message.reply(`If you have questions about a transaction or need help with a refund, please provide your order ID and open a support ticket in <#${SUPPORT_CHANNEL_ID}>`);
-    } else if (metricsAnalytics.test(message.content) && isLikelyQuestion(message.content)) {
-      await message.reply(
-        "You can check Garden metrics on:\n\n" +
-        "🔍 **Garden Explorer**: <https://explorer.garden.finance/>\n" +
-        "📊 **Dune**: <https://dune.com/garden_finance/gardenfinance>\n" +
-        "📈 **DefiLlama**: <https://defillama.com/protocol/garden>"
-      );
-    } 
+  if (wenMoon.test(message.content)) {
+    const botReply = await message.reply(pickMoon());
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (wenLambo.test(message.content)) {
+    const botReply = await message.reply(pickLambo());
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (meaningOfLife.test(message.content)) {
+    const botReply = await message.reply(pickMeaningOfLife());
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (wenNetwork.test(message.content)) {
+    const botReply = await message.reply(pickWorkingOnIt());
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (wenDuneAnalytics.test(message.content)) {
+    const botReply = await message.reply(
+      "Check out the official dune dashboard 📊 here: <https://dune.com/garden_finance/gardenfinance>"
+    );
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (wenDude.test(message.content)) {
+    const botReply = await message.reply(pickDude());
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (wenStake.test(message.content)) {
+    const botReply = await message.reply(
+      'You can stake in increments of 2,100 SEED for 6 month, 12 month, 24 months, 48 months or permanently.\nYou can also burn 21,000 SEED for an Gardener Pass NFT for maximum voting power.\n\n For more info, and to start staking, visit <https://app.garden.finance/stake/>.'
+    );
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (wenVote.test(message.content)) {
+    const botReply = await message.reply(
+      'Garden Snapshot can be found at <https://snapshot.org/#/gardenfinance.eth>. SEED stakers will eventually be able to vote on their favorite fillers. For more details, check out <https://garden.finance/blog/market-making-and-staking/>',
+    );
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (contractAddress.test(message.content)) {
+    const botReply = await message.channel.send({ embeds: [ADDRESSES_EMBEDDED_MSG] });
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (totalSupply.test(message.content)) {
+    const botReply = await message.reply(
+      "SEED's total supply is 147,000,000.\n\nKeep in mind not everything will be in circulation at launch. For more info, check <https://garden.finance/blog/wbtc-garden-introducing-seed/>",
+    );
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (howToGetSeed.test(message.content)) {
+    const botReply = await message.reply(
+      "You can swap for SEED on Cowswap 🐮\n\n" +
+      "**Ethereum:**\n" +
+      "<https://swap.cow.fi/#/1/swap/WETH/0x5eed99d066a8CaF10f3E4327c1b3D8b673485eED>\n\n" +
+      "View the ERC20 contract address for SEED on Etherscan: <https://etherscan.io/token/0x5eed99d066a8CaF10f3E4327c1b3D8b673485eED>"
+    );
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (howToStakeOrClaim.test(message.content)) {
+    const botReply = await message.reply(
+      "Stake SEED 🌱 to earn fees in BTC or to claim BTC rewards, visit <https://app.garden.finance/stake/>\n\n",
+    );
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (wenDefillama.test(message.content)) {
+    const botReply = await message.reply(
+      "Garden's 🌸 Defillama page can be found here:\n<https://defillama.com/protocol/garden>",
+    );
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (gardenExplorer.test(message.content)) {
+    const botReply = await message.reply(
+      "You can check your transaction status at Garden's explorer page 🌸: <https://explorer.garden.finance/>"
+    );
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (stakingIssues.test(message.content)) {
+    const botReply = await message.reply(`If you are having issues with staking, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (swapIssues.test(message.content)) {
+    const botReply = await message.reply(`If you're experiencing issues with an in progress swap, please open a support ticket in <#${SUPPORT_CHANNEL_ID}> and include your order ID.`);
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (claimingIssues.test(message.content)) {
+    const botReply = await message.reply(`If you are having issues claiming $SEED, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (orderIssues.test(message.content) || transactionIssues.test(message.content)) {
+    const botReply = await message.reply(`If you have questions about a transaction or need help with a refund, please provide your order ID and open a support ticket in <#${SUPPORT_CHANNEL_ID}>`);
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  } else if (metricsAnalytics.test(message.content) && isLikelyQuestion(message.content)) {
+    const botReply = await message.reply(
+      "You can check Garden metrics on:\n\n" +
+      "🔍 **Garden Explorer**: <https://explorer.garden.finance/>\n" +
+      "📊 **Dune**: <https://dune.com/garden_finance/gardenfinance>\n" +
+      "📈 **DefiLlama**: <https://defillama.com/protocol/garden>"
+    );
+    botResponseMessages.set(botReply.id, {
+      triggeredBy: message.author.id,
+      timestamp: Date.now()
+    });
+  }
   } catch (e) {
     console.error('Something failed handling a message', e);
   } finally {
@@ -1378,6 +1465,42 @@ async function handleUnauthorizedUrl(message) {
   }
 }
 
+//  handle reaction-based dismissal
+async function handleReactionDismiss(reaction, user) {
+  try {
+    // Skip if it's a bot reaction
+    if (user.bot) return;
+
+    const message = reaction.message;
+    
+    // Check if this message is a tracked bot response
+    if (!botResponseMessages.has(message.id)) return;
+
+    // Check if the reaction is :x: or 👎
+    if (reaction.emoji.name !== '❌' && reaction.emoji.name !== '👎') return;
+
+    // Fetch the reactor's member object
+    const member = await message.guild.members.fetch(user.id);
+    
+    // Check if user has role above base role
+    if (!isAboveBaseRole(member)) {
+      console.log(`User ${user.tag} doesn't have permission to dismiss bot messages`);
+      return;
+    }
+
+    console.log(`User ${user.tag} dismissed bot message ${message.id}`);
+    
+    // Delete the bot's message
+    if (message.deletable) {
+      await message.delete();
+      botResponseMessages.delete(message.id);
+      console.log(`Deleted bot message ${message.id} via reaction dismiss`);
+    }
+  } catch (error) {
+    console.error('Error handling reaction dismiss:', error);
+  }
+}
+
 // Add a function to check if a user has a protected role
 function hasProtectedRole(member) {
   if (!member || !member.roles) {
@@ -1391,39 +1514,40 @@ function hasProtectedRole(member) {
     // Create more detailed report
     async function sendDetailedReport(guild) {
       try {
-        const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
+        const { EmbedBuilder } = require('discord.js');
+        const config = require('./config');
+        
+        const reportChannel = await guild.channels.fetch(config.SCAM_CHANNEL_ID);
         if (!reportChannel) {
-          console.error(`Report channel with ID ${SCAM_CHANNEL_ID} not found`);
+          console.error(`Report channel with ID ${config.SCAM_CHANNEL_ID} not found`);
           return;
         }
-  
-        // For testing purposes, use current time instead of yesterday
+
         const now = new Date();
         const formattedDate = now.toISOString().split('T')[0];
         const formattedTime = now.toTimeString().split(' ')[0];
-  
+
         // Handle no interceptions case
-        if (reportData.dailyInterceptCount === 0) {
+        if (reportData.interceptCount === 0) {
           await reportChannel.send({
             embeds: [
               new EmbedBuilder()
-                .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
-                .setColor('#00FF00')  // Green color for all-clear
-                .setDescription(`No scam attempts intercepted! 🎉`)
-                .setFooter({ text: 'Garden Security Bot - TEST MODE' })
+                .setTitle(`📊 Daily Security Report - ${formattedDate}`)
+                .setColor('#00FF00')
+                .setDescription(`No scam attempts intercepted in the last 24 hours! 🎉`)
+                .setFooter({ text: 'Garden Security Bot - Daily Report' })
                 .setTimestamp()
             ]
           });
           
-          console.log(`Sent empty test report at ${formattedTime}`);
+          console.log(`Sent empty daily report at ${formattedTime}`);
           return;
         }
-  
-        // Create a more detailed embed report
+
         const embed = new EmbedBuilder()
-          .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
+          .setTitle(`📊 Daily Security Report - ${formattedDate}`)
           .setColor('#FF0000')
-          .setDescription(`Total interceptions: **${reportData.dailyInterceptCount}**`)
+          .setDescription(`Total interceptions in the last 24 hours: **${reportData.interceptCount}**`)
           .addFields(
             { 
               name: 'URL Shorteners', 
@@ -1446,9 +1570,9 @@ function hasProtectedRole(member) {
               inline: true 
             }
           )
-          .setFooter({ text: 'Garden Security Bot - TEST MODE' })
+          .setFooter({ text: 'Garden Security Bot - Daily Report' })
           .setTimestamp();
-  
+
         // Add top offenders if any exist
         if (reportData.topScammers.size > 0) {
           const topOffenders = Array.from(reportData.topScammers.entries())
@@ -1456,42 +1580,39 @@ function hasProtectedRole(member) {
             .slice(0, 5)
             .map(([userId, count], index) => `${index + 1}. <@${userId}>: ${count} violation${count !== 1 ? 's' : ''}`)
             .join('\n');
-  
+
           if (topOffenders) {
             embed.addFields({ name: 'Top Offenders', value: topOffenders });
           }
         } else {
-          // No repeat offenders
           embed.addFields({ 
             name: 'Top Offenders', 
             value: 'No repeat offenders.' 
           });
         }
-  
-        // Send the embed report
+
         await reportChannel.send({ embeds: [embed] });
-        
-        console.log(`Sent detailed test security report at ${formattedTime}`);
+        console.log(`Sent detailed daily security report at ${formattedTime}`);
       } catch (error) {
-        console.error('Error sending test report:', error);
+        console.error('Error sending daily report:', error);
       }
     }
 
     function setupReportingSystem(client) {
       // Store report data
       const reportData = {
-        interceptCount: 0,
-        lastReportTime: Date.now(), // Start from now
-        scamTypes: {
-          urlShorteners: 0,
-          discordInvites: 0,
-          encodedUrls: 0,
-          otherScams: 0
-        },
-        topScammers: new Map()
-      };
-    
-      console.log(`Reporting system initialized at ${new Date(reportData.lastReportTime).toISOString()}`);
+          interceptCount: 0,
+          lastReportTime: Date.now(),
+          scamTypes: {
+            urlShorteners: 0,
+            discordInvites: 0,
+            encodedUrls: 0,
+            otherScams: 0
+          },
+          topScammers: new Map()
+        };
+
+        console.log(`Reporting system initialized at ${new Date(reportData.lastReportTime).toISOString()}`);
       
       // Reset report data function
       function resetReportData() {
@@ -1526,100 +1647,9 @@ function hasProtectedRole(member) {
         console.log(`Report data updated: ${type} by user ${userId || 'unknown'}, total count: ${reportData.interceptCount}`);
       };
     
-      // Send detailed report function
-      async function sendDetailedReport(guild) {
-        try {
-          const { EmbedBuilder } = require('discord.js');
-          const config = require('./config');
-          
-          const reportChannel = await guild.channels.fetch(config.SCAM_CHANNEL_ID);
-          if (!reportChannel) {
-            console.error(`Report channel with ID ${config.SCAM_CHANNEL_ID} not found`);
-            return;
-          }
-    
-          // Current date/time formatting
-          const now = new Date();
-          const formattedDate = now.toISOString().split('T')[0];
-          const formattedTime = now.toTimeString().split(' ')[0];
-    
-          // Handle no interceptions case
-          if (reportData.interceptCount === 0) {
-            await reportChannel.send({
-              embeds: [
-                new EmbedBuilder()
-                  .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
-                  .setColor('#00FF00')  // Green color for all-clear
-                  .setDescription(`No scam attempts intercepted in the last 4 hours! 🎉`)
-                  .setFooter({ text: 'Garden Security Bot - TEST MODE (4-hour interval)' })
-                  .setTimestamp()
-              ]
-            });
-            
-            console.log(`Sent empty report at ${formattedTime}`);
-            return;
-          }
-    
-          // Create a detailed embed report
-          const embed = new EmbedBuilder()
-            .setTitle(`📊 Security Report for ${formattedDate} at ${formattedTime}`)
-            .setColor('#FF0000')
-            .setDescription(`Total interceptions in the last 4 hours: **${reportData.interceptCount}**`)
-            .addFields(
-              { 
-                name: 'URL Shorteners', 
-                value: reportData.scamTypes.urlShorteners.toString(), 
-                inline: true 
-              },
-              { 
-                name: 'Discord Invites', 
-                value: reportData.scamTypes.discordInvites.toString(), 
-                inline: true 
-              },
-              { 
-                name: 'Encoded URLs', 
-                value: reportData.scamTypes.encodedUrls.toString(), 
-                inline: true 
-              },
-              { 
-                name: 'Other Scams', 
-                value: reportData.scamTypes.otherScams.toString(), 
-                inline: true 
-              }
-            )
-            .setFooter({ text: 'Garden Security Bot - TEST MODE (4-hour interval)' })
-            .setTimestamp();
-    
-          // Add top offenders if any exist
-          if (reportData.topScammers.size > 0) {
-            const topOffenders = Array.from(reportData.topScammers.entries())
-              .sort((a, b) => b[1] - a[1])
-              .slice(0, 5)
-              .map(([userId, count], index) => `${index + 1}. <@${userId}>: ${count} violation${count !== 1 ? 's' : ''}`)
-              .join('\n');
-    
-            if (topOffenders) {
-              embed.addFields({ name: 'Top Offenders', value: topOffenders });
-            }
-          } else {
-            // No repeat offenders
-            embed.addFields({ 
-              name: 'Top Offenders', 
-              value: 'No repeat offenders.' 
-            });
-          }
-    
-          // Send the embed report
-          await reportChannel.send({ embeds: [embed] });
-          console.log(`Sent detailed security report at ${formattedTime}`);
-        } catch (error) {
-          console.error('Error sending report:', error);
-        }
-      }
-    
-      // Run reports every 4 hours
-      const REPORT_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
-      
+      // Run reports every 24 hours
+      const REPORT_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+  
       const intervalId = setInterval(async () => {
         try {
           const now = Date.now();
@@ -1631,11 +1661,11 @@ function hasProtectedRole(member) {
           }
           
           console.log(`Running report check at: ${new Date(now).toISOString()}`);
-          console.log(`Time since last report: ${(now - reportData.lastReportTime) / 60000} minutes`);
+          console.log(`Time since last report: ${(now - reportData.lastReportTime) / 3600000} hours`);
           
-          // If it's been approximately 4 hours since the last report
+          // If it's been approximately 24 hours since the last report
           if (now - reportData.lastReportTime >= REPORT_INTERVAL) {
-            console.log("4 hours elapsed, sending report...");
+            console.log("24 hours elapsed, sending report...");
             
             await sendDetailedReport(guild);
             
@@ -1648,10 +1678,10 @@ function hasProtectedRole(member) {
         } catch (error) {
           console.error('Error in report interval handler:', error);
         }
-      }, 15 * 60 * 1000); // Check every 15 minutes
+      }, 60 * 60 * 1000); // Check every hour
       
       client.reportInterval = intervalId;
-      console.log('Security reporting system initialized - will send reports every 4 hours');
+      console.log('Security reporting system initialized - will send reports every 24 hours');
       
       return global.updateReportData;
     }
@@ -1667,5 +1697,7 @@ module.exports = {
   setupReportingSystem,
   detectUrlObfuscation,
   hasDeceptiveUrl,
-  containsUrlShortener
+  containsUrlShortener,
+  handleReactionDismiss,
+  botResponseMessages
 };
