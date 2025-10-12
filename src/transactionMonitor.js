@@ -1,27 +1,78 @@
-//transactionMonitor.js - track onchain transactions
+//transactionMonitor.js - track onchain transactions with Etherscan v2 API
 const { Web3 } = require('web3');
 const { EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 const { 
-  TOKEN_ADDRESS, STAKING_CONTRACT_ADDRESS, UNISWAP_POOL_ADDRESS, 
-  UNISWAP_POOL_ABI, LARGE_SWAP_AMOUNT, LARGE_STAKE_AMOUNT, WEB3_PROVIDER,
-  ARBISCAN_API_KEY, CHANNEL_ID
+  ETHERSCAN_API_KEY, 
+  ETHERSCAN_V2_BASE_URL,
+  CHAINS,
+  ACTIVE_CHAINS,
+  UNISWAP_POOL_ABI, 
+  LARGE_SWAP_AMOUNT, 
+  LARGE_STAKE_AMOUNT,
+  CHANNEL_ID
 } = require('./config');
 const { sendAlert } = require('./discordUtils');
 const { createTransferEmbed, createStakeEmbed, createSwapEmbed } = require('./embeds');
 
-
-const web3 = new Web3(WEB3_PROVIDER);
-
-let highestCheckedBlock = 0;
+// Store Web3 instances per chain
+const web3Instances = {};
+const highestCheckedBlocks = {};
 const processedTransactions = new Set();
 
-let client; // Declare a variable to hold the client
+// Initialize Web3 instances for each active chain
+function initializeWeb3Instances() {
+  ACTIVE_CHAINS.forEach(chainKey => {
+    const chainConfig = CHAINS[chainKey];
+    if (chainConfig) {
+      web3Instances[chainKey] = new Web3(chainConfig.rpcUrl);
+      highestCheckedBlocks[chainKey] = 0;
+      console.log(`Initialized Web3 for ${chainConfig.name} (Chain ID: ${chainConfig.chainId})`);
+    } else {
+      console.warn(`Chain configuration not found for: ${chainKey}`);
+    }
+  });
+}
 
+// Main check function that processes all active chains
 async function checkTransfers(client) {
+  // Initialize Web3 instances if not done yet
+  if (Object.keys(web3Instances).length === 0) {
+    initializeWeb3Instances();
+  }
+
+  console.log(`\n🔍 Starting transaction check across ${ACTIVE_CHAINS.length} chain(s)...`);
+  const overallStartTime = new Date();
+
+  // Process each active chain
+  for (const chainKey of ACTIVE_CHAINS) {
+    const chainConfig = CHAINS[chainKey];
+    if (!chainConfig) {
+      console.warn(`Skipping unknown chain: ${chainKey}`);
+      continue;
+    }
+
+    try {
+      await checkTransfersForChain(client, chainKey, chainConfig);
+    } catch (error) {
+      console.error(`Error checking transfers for ${chainConfig.name}:`, error.message);
+    }
+  }
+
+  const overallEndTime = new Date();
+  const overallDuration = ((overallEndTime - overallStartTime) / 1000).toFixed(2);
+  console.log(`✅ Completed checking all chains in ${overallDuration} seconds\n`);
+}
+
+// Check transfers for a specific chain
+async function checkTransfersForChain(client, chainKey, chainConfig) {
   try {
+    const web3 = web3Instances[chainKey];
+    
     // Statistics tracking
     const stats = {
+      chain: chainConfig.name,
+      chainId: chainConfig.chainId,
       startTime: new Date(),
       totalBlocksToProcess: 0,
       blocksProcessed: 0,
@@ -34,29 +85,29 @@ async function checkTransfers(client) {
       summaryByRange: []
     };
     
-    // Get current block number
-    const currentBlock = await getLatestBlockNumber();
+    // Get current block number using v2 API
+    const currentBlock = await getLatestBlockNumber(chainConfig.chainId);
     stats.apiCallsMade++;
     
     // Initialize if first run
-    if (highestCheckedBlock === 0) {
-      highestCheckedBlock = currentBlock - 500; 
-      console.log(`Initializing from block ${highestCheckedBlock}`);
-      return; // Exit after initialization to avoid immediate processing
+    if (highestCheckedBlocks[chainKey] === 0) {
+      highestCheckedBlocks[chainKey] = currentBlock - 500;
+      console.log(`[${chainConfig.name}] Initializing from block ${highestCheckedBlocks[chainKey]}`);
+      return;
     }
     
     // Skip if no new blocks
-    if (currentBlock <= highestCheckedBlock) {
-      console.log(`No new blocks yet. Current: ${currentBlock}, Last: ${highestCheckedBlock}`);
-      return;        
+    if (currentBlock <= highestCheckedBlocks[chainKey]) {
+      console.log(`[${chainConfig.name}] No new blocks yet. Current: ${currentBlock}, Last: ${highestCheckedBlocks[chainKey]}`);
+      return;
     }
     
-    stats.totalBlocksToProcess = currentBlock - highestCheckedBlock;
-    console.log(`Starting processing of ${stats.totalBlocksToProcess} new blocks (${highestCheckedBlock + 1} to ${currentBlock})`);
+    stats.totalBlocksToProcess = currentBlock - highestCheckedBlocks[chainKey];
+    console.log(`[${chainConfig.name}] Starting processing of ${stats.totalBlocksToProcess} new blocks (${highestCheckedBlocks[chainKey] + 1} to ${currentBlock})`);
     
     // Process in smaller chunks with longer delays
-    const maxBlocksPerRequest = 100; // Smaller chunks
-    let processedBlock = highestCheckedBlock;
+    const maxBlocksPerRequest = 100;
+    let processedBlock = highestCheckedBlocks[chainKey];
     
     // Only fetch token price when needed
     let tokenPrice = null;
@@ -68,21 +119,24 @@ async function checkTransfers(client) {
       const rangeEnd = nextBlock;
       
       try {
-        // Add substantial delay between API calls to respect rate limits
+        // Add delay between API calls to respect rate limits
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        const transfers = await getTokenTransfers(rangeStart, rangeEnd);
+        const transfers = await getTokenTransfers(
+          chainConfig.chainId,
+          chainConfig.tokenAddress,
+          rangeStart,
+          rangeEnd
+        );
         stats.apiCallsMade++;
         
         // If we got a rate limit response, pause and save progress
         if (!transfers) {
-          console.error(`Rate limited. Saving progress at block ${processedBlock}`);
+          console.error(`[${chainConfig.name}] Rate limited. Saving progress at block ${processedBlock}`);
           stats.errorCount++;
-          highestCheckedBlock = processedBlock;
-          
-          // Log summary of what was completed before the rate limit
+          highestCheckedBlocks[chainKey] = processedBlock;
           logSummary(stats);
-          return; // Exit the function and try again next cycle
+          return;
         }
         
         // Record the range result
@@ -95,7 +149,7 @@ async function checkTransfers(client) {
           largeSwapCount: 0
         };
         
-        // If empty result or not an array, just continue to next chunk
+        // If empty result or not an array, continue to next chunk
         if (!Array.isArray(transfers) || transfers.length === 0) {
           stats.summaryByRange.push(rangeStats);
           processedBlock = nextBlock;
@@ -114,40 +168,42 @@ async function checkTransfers(client) {
         
         if (hasLargeTransfer && tokenPrice === null) {
           try {
-            tokenPrice = await getSeedTokenPrice();
+            tokenPrice = await getSeedTokenPrice(chainConfig.coingeckoId);
             stats.apiCallsMade++;
           } catch (priceError) {
-            console.error('Failed to get token price:', priceError.message);
+            console.error(`[${chainConfig.name}] Failed to get token price:`, priceError.message);
             stats.errorCount++;
-            tokenPrice = 0; // Use 0 as fallback
+            tokenPrice = 0;
           }
         }
         
-        // Process transfers with lightweight tracking
+        // Process transfers
         for (const transfer of transfers) {
           const txHash = transfer.hash;
           
-          // Skip if already processed
-          if (processedTransactions.has(txHash)) {
+          // Skip if already processed (use chain-specific key)
+          const txKey = `${chainKey}-${txHash}`;
+          if (processedTransactions.has(txKey)) {
             continue;
           }
           
-          // Add to processed set
-          processedTransactions.add(txHash);
+          processedTransactions.add(txKey);
           
           // Convert to human-readable amount
           const amount = parseFloat(web3.utils.fromWei(transfer.value, 'ether'));
           const usdValue = tokenPrice ? amount * tokenPrice : 0;
           const displayText = `${txHash.substring(0, 6)}...${txHash.substring(txHash.length - 4)}`;
           
-          // Process large stakes
-          if (transfer.to.toLowerCase() === STAKING_CONTRACT_ADDRESS.toLowerCase() && 
+          // Process large stakes (only if staking is enabled on this chain)
+          if (chainConfig.features.staking && 
+              chainConfig.stakingAddress && 
+              transfer.to.toLowerCase() === chainConfig.stakingAddress.toLowerCase() && 
               amount >= LARGE_STAKE_AMOUNT) {
-            console.log(`Large stake: ${amount} SEED ($${usdValue.toFixed(2)}) in block ${transfer.blockNumber}`);
+            console.log(`[${chainConfig.name}] Large stake: ${amount} SEED (${usdValue.toFixed(2)}) in block ${transfer.blockNumber}`);
             stats.largeStakesFound++;
             rangeStats.largeStakeCount++;
             
-            const embed = createStakeEmbed(amount, usdValue, txHash, displayText);
+            const embed = createStakeEmbed(amount, usdValue, txHash, displayText, chainConfig.name, chainConfig.chainId);
             sendAlert(client, embed, CHANNEL_ID);
             continue;
           }
@@ -155,77 +211,69 @@ async function checkTransfers(client) {
           // Process large transfers/swaps
           if (amount >= LARGE_SWAP_AMOUNT) {
             try {
-              // Check if this is a swap (only if amount is large enough to care)
-              const receipt = await getTransactionReceipt(txHash);
+              const receipt = await getTransactionReceipt(web3, txHash);
               stats.apiCallsMade++;
-              await new Promise(resolve => setTimeout(resolve, 500)); // Avoid rate limits
+              await new Promise(resolve => setTimeout(resolve, 500));
               
               const isSwap = receipt.logs.some(log => 
-                log.address.toLowerCase() === UNISWAP_POOL_ADDRESS.toLowerCase() && 
+                log.address.toLowerCase() === chainConfig.uniswapPoolAddress.toLowerCase() && 
                 log.topics[0] === web3.utils.sha3('Swap(address,address,int256,int256,uint160,uint128,int24)')
               );
               
               if (isSwap) {
-                console.log(`Large swap: ${amount} SEED ($${usdValue.toFixed(2)}) in block ${transfer.blockNumber}`);
+                console.log(`[${chainConfig.name}] Large swap: ${amount} SEED ($${usdValue.toFixed(2)}) in block ${transfer.blockNumber}`);
                 stats.largeSwapsFound++;
                 rangeStats.largeSwapCount++;
-                const embed = createSwapEmbed(amount, usdValue, txHash, displayText);
+                const embed = createSwapEmbed(amount, usdValue, txHash, displayText, chainConfig.name, chainConfig.chainId);
                 sendAlert(client, embed, CHANNEL_ID);
               } else {
-                console.log(`Large transfer: ${amount} SEED ($${usdValue.toFixed(2)}) in block ${transfer.blockNumber}`);
+                console.log(`[${chainConfig.name}] Large transfer: ${amount} SEED ($${usdValue.toFixed(2)}) in block ${transfer.blockNumber}`);
                 stats.largeTransfersFound++;
                 rangeStats.largeTransferCount++;
-                const embed = createTransferEmbed(amount, usdValue, txHash, displayText);
+                const embed = createTransferEmbed(amount, usdValue, txHash, displayText, chainConfig.name, chainConfig.chainId);
                 sendAlert(client, embed, CHANNEL_ID);
               }
             } catch (receiptError) {
-              console.error(`Failed to get receipt for ${displayText}:`, receiptError.message);
+              console.error(`[${chainConfig.name}] Failed to get receipt for ${displayText}:`, receiptError.message);
               stats.errorCount++;
-              // Continue despite error - we'll just miss this one transaction
             }
           }
         }
         
-        // Add this range to summary
         stats.summaryByRange.push(rangeStats);
         
       } catch (chunkError) {
-        console.error(`Error processing chunk ${rangeStart} to ${rangeEnd}:`, chunkError.message);
+        console.error(`[${chainConfig.name}] Error processing chunk ${rangeStart} to ${rangeEnd}:`, chunkError.message);
         stats.errorCount++;
-        // Wait a bit longer after errors
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
       
-      // Update processed block counter
       processedBlock = nextBlock;
       stats.blocksProcessed += (rangeEnd - rangeStart + 1);
       
-      // Clean up the processedTransactions set occasionally to prevent memory leaks
-      if (processedTransactions.size > 1000) {
-        const oldestEntries = Array.from(processedTransactions).slice(0, 500);
+      // Clean up processed transactions set
+      if (processedTransactions.size > 10000) {
+        const oldestEntries = Array.from(processedTransactions).slice(0, 5000);
         oldestEntries.forEach(tx => processedTransactions.delete(tx));
       }
     }
     
-    // Only update the highest checked block after successful processing
-    highestCheckedBlock = currentBlock;
-    
-    // Log the summary
+    highestCheckedBlocks[chainKey] = currentBlock;
     logSummary(stats);
     
   } catch (error) {
-    console.error('Error in checkTransfers:', error.message);
-    // Don't update highestCheckedBlock on error
+    console.error(`[${chainConfig.name}] Error in checkTransfersForChain:`, error.message);
   }
 }
 
-// Function to log a nicely formatted summary
+// Log summary function
 function logSummary(stats) {
   const endTime = new Date();
   const durationMs = endTime - stats.startTime;
   const durationSec = (durationMs / 1000).toFixed(2);
   
-  console.log('\n======= TRANSACTION MONITOR SUMMARY =======');
+  console.log(`\n======= [${stats.chain}] TRANSACTION MONITOR SUMMARY =======`);
+  console.log(`Chain ID: ${stats.chainId}`);
   console.log(`Run completed in ${durationSec} seconds`);
   console.log(`Blocks processed: ${stats.blocksProcessed}/${stats.totalBlocksToProcess}`);
   console.log(`API calls made: ${stats.apiCallsMade}`);
@@ -241,23 +289,19 @@ function logSummary(stats) {
   
   console.log('\nBlock range summary:');
   
-  // Group consecutive ranges with 0 transfers
   let currentEmptyRange = null;
   
-  stats.summaryByRange.forEach((range, index) => {
-    // If this range has transfers or significant events, print it
+  stats.summaryByRange.forEach((range) => {
     if (range.transferCount > 0 || 
         range.largeTransferCount > 0 || 
         range.largeStakeCount > 0 || 
         range.largeSwapCount > 0) {
       
-      // Print any accumulated empty range before this
       if (currentEmptyRange) {
         console.log(`Blocks ${currentEmptyRange.startBlock} - ${currentEmptyRange.endBlock}: No transactions found`);
         currentEmptyRange = null;
       }
       
-      // Print this range with details
       console.log(`Blocks ${range.startBlock} - ${range.endBlock}: ${range.transferCount} transactions found`);
       
       if (range.largeTransferCount > 0) {
@@ -270,20 +314,17 @@ function logSummary(stats) {
         console.log(`  - ${range.largeSwapCount} large swaps`);
       }
     } else {
-      // This is an empty range - accumulate it
       if (!currentEmptyRange) {
         currentEmptyRange = {
           startBlock: range.startBlock,
           endBlock: range.endBlock
         };
       } else {
-        // Extend the current empty range
         currentEmptyRange.endBlock = range.endBlock;
       }
     }
   });
   
-  // Print any final empty range
   if (currentEmptyRange) {
     console.log(`Blocks ${currentEmptyRange.startBlock} - ${currentEmptyRange.endBlock}: No transactions found`);
   }
@@ -291,37 +332,33 @@ function logSummary(stats) {
   console.log('===========================================\n');
 }
 
-async function getLatestBlockNumber() {
-  const response = await axios.get(`https://api.arbiscan.io/api?module=proxy&action=eth_blockNumber&apikey=${ARBISCAN_API_KEY}`);
+// Get latest block number using Etherscan v2 API
+async function getLatestBlockNumber(chainId) {
+  const url = `${ETHERSCAN_V2_BASE_URL}?chainid=${chainId}&module=proxy&action=eth_blockNumber&apikey=${ETHERSCAN_API_KEY}`;
+  const response = await axios.get(url);
   return parseInt(response.data.result, 16);
 }
 
-async function getTokenTransfers(fromBlock, toBlock, maxRetries = 5) {
+// Get token transfers using Etherscan v2 API
+async function getTokenTransfers(chainId, contractAddress, fromBlock, toBlock, maxRetries = 5) {
   let attempt = 0;
   
   while (attempt < maxRetries) {
     attempt++;
     
-    try {      
-      const response = await axios.get(
-        `https://api.arbiscan.io/api?module=account&action=tokentx&contractaddress=${TOKEN_ADDRESS}&startblock=${fromBlock}&endblock=${toBlock}&sort=asc&apikey=${ARBISCAN_API_KEY}`,
-        { 
-          timeout: 15000 // 15 second timeout
-        }
-      );
+    try {
+      const url = `${ETHERSCAN_V2_BASE_URL}?chainid=${chainId}&module=account&action=tokentx&contractaddress=${contractAddress}&startblock=${fromBlock}&endblock=${toBlock}&sort=asc&apikey=${ETHERSCAN_API_KEY}`;
       
-      // Return the result from a successful API call
+      const response = await axios.get(url, { timeout: 15000 });
+      
       return response.data.result || [];
       
     } catch (error) {
-      // Check if the error is "No transactions found"
       if (error.response?.data?.message === "No transactions found" || 
           error.message?.includes("No transactions found")) {
-        console.log(`No transactions found in blocks ${fromBlock} to ${toBlock}`);
-        return []; // Return empty array as a valid response
+        return [];
       }
       
-      // For other errors, retry with backoff
       console.error(`API request failed (${error.message})`);
       
       if (attempt < maxRetries) {
@@ -330,22 +367,27 @@ async function getTokenTransfers(fromBlock, toBlock, maxRetries = 5) {
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
         console.error(`Maximum retry attempts reached. Unable to fetch transfers.`);
-        throw error; // Re-throw after all retries fail
+        throw error;
       }
     }
   }
 }
 
-async function getTransactionReceipt(txHash) {
+// Get transaction receipt
+async function getTransactionReceipt(web3, txHash) {
   return await web3.eth.getTransactionReceipt(txHash);
 }
-async function getToken0Address(poolAddress) {
+
+// Get token0 address from pool
+async function getToken0Address(web3, poolAddress) {
   const poolContract = new web3.eth.Contract(UNISWAP_POOL_ABI, poolAddress);
   return await poolContract.methods.token0().call();
 }
-async function getSeedTokenPrice() {
-  const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=garden-2&vs_currencies=usd');
-  return response.data['garden-2'].usd;
+
+// Get token price from CoinGecko
+async function getSeedTokenPrice(coingeckoId) {
+  const response = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoId}&vs_currencies=usd`);
+  return response.data[coingeckoId].usd;
 }
 
 module.exports = { 
@@ -355,4 +397,4 @@ module.exports = {
   getTransactionReceipt,
   getToken0Address,
   getSeedTokenPrice
- };
+};

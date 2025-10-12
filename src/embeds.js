@@ -12,12 +12,41 @@ const COLORS = {
   SWAP: '#2ECC71'
 };
 
+// Helper function to get block explorer URL based on chain ID
+function getExplorerUrl(chainId, txHash) {
+  const explorers = {
+    1: `https://etherscan.io/tx/${txHash}`,
+    42161: `https://arbiscan.io/tx/${txHash}`,
+    10: `https://optimistic.etherscan.io/tx/${txHash}`,
+    8453: `https://basescan.org/tx/${txHash}`,
+    137: `https://polygonscan.com/tx/${txHash}`,
+    56: `https://bscscan.com/tx/${txHash}`,
+  };
+  
+  return explorers[chainId] || `https://etherscan.io/tx/${txHash}`;
+}
+
+// Helper function to get chain emoji
+function getChainEmoji(chainName) {
+  const emojis = {
+    'Ethereum': '🔷',
+    'Arbitrum': '🔵',
+    'Optimism': '🔴',
+    'Base': '🔵',
+    'Polygon': '🟣',
+    'BSC': '🟡',
+  };
+  
+  return emojis[chainName] || '⛓️';
+}
+
 // Helper functions for formatting
-function formatTxHash(txHash) {
+function formatTxHash(txHash, chainId = 42161) {
   if (!txHash || typeof txHash !== 'string' || txHash.length < 10) {
     return 'Invalid Hash';
   }
-  return `[${txHash.substring(0, 6)}...${txHash.substring(txHash.length - 4)}](https://arbiscan.io/tx/${txHash})`;
+  const explorerUrl = getExplorerUrl(chainId, txHash);
+  return `[${txHash.substring(0, 6)}...${txHash.substring(txHash.length - 4)}](${explorerUrl})`;
 }
 
 function formatCurrency(value) {
@@ -57,50 +86,59 @@ const ADDRESSES_EMBEDDED_MSG = new EmbedBuilder()
   .setFooter({ text: 'Garden Finance Bot • Contract Addresses' })
   .setTimestamp();
 
-// Dynamic embeds
-function createTransferEmbed(amount, usdValue, txHash) {
+// Dynamic embeds for transaction monitoring (with multi-chain support)
+function createTransferEmbed(amount, usdValue, txHash, displayText, chainName = 'Arbitrum', chainId = 42161) {
   const safeAmount = Number.isFinite(amount) ? amount : 0;
   const safeUsdValue = Number.isFinite(usdValue) ? usdValue : 0;
+  const emoji = getChainEmoji(chainName);
   
   return new EmbedBuilder()
-    .setTitle('🌸 Large SEED 🌱 Transfer 🌸')
+    .setTitle(`${emoji} 🌸 Large SEED 🌱 Transfer 🌸`)
+    .setDescription(`A significant token transfer has been detected on ${chainName}`)
     .setColor(COLORS.TRANSFER)
     .addFields([
       { name: 'SEED 🌱 Transferred', value: formatNumber(safeAmount), inline: true },
       { name: 'USD Value 💵', value: formatCurrency(safeUsdValue), inline: true },
-      { name: 'Tx Hash', value: formatTxHash(txHash) }
+      { name: '🔗 Chain', value: chainName, inline: true },
+      { name: 'Tx Hash', value: formatTxHash(txHash, chainId), inline: false }
     ])
     .setFooter({ text: 'Garden Finance Bot • Transaction Monitor' })
     .setTimestamp();
 }
 
-function createStakeEmbed(amount, usdValue, txHash) {
+function createStakeEmbed(amount, usdValue, txHash, displayText, chainName = 'Arbitrum', chainId = 42161) {
   const safeAmount = Number.isFinite(amount) ? amount : 0;
   const safeUsdValue = Number.isFinite(usdValue) ? usdValue : 0;
+  const emoji = getChainEmoji(chainName);
   
   return new EmbedBuilder()
-    .setTitle('🌸 Large SEED 🌱 Stake 🌸')
+    .setTitle(`${emoji} 🌸 Large SEED 🌱 Stake 🌸`)
+    .setDescription(`A significant staking transaction has been detected on ${chainName}`)
     .setColor(COLORS.STAKE)
     .addFields([
       { name: 'SEED 🌱 Staked', value: formatNumber(safeAmount), inline: true },
       { name: 'USD Value 💵', value: formatCurrency(safeUsdValue), inline: true },
-      { name: 'Tx Hash', value: formatTxHash(txHash) }
+      { name: '🔗 Chain', value: chainName, inline: true },
+      { name: 'Tx Hash', value: formatTxHash(txHash, chainId), inline: false }
     ])
     .setFooter({ text: 'Garden Finance Bot • Staking Monitor' })
     .setTimestamp();
 }
 
-function createSwapEmbed(amount, usdValue, txHash) {
+function createSwapEmbed(amount, usdValue, txHash, displayText, chainName = 'Arbitrum', chainId = 42161) {
   const safeAmount = Number.isFinite(amount) ? amount : 0;
   const safeUsdValue = Number.isFinite(usdValue) ? usdValue : 0;
+  const emoji = getChainEmoji(chainName);
   
   return new EmbedBuilder()
-    .setTitle('🌸 Large SEED 🌱 Swap 🌸')
+    .setTitle(`${emoji} 🌸 Large SEED 🌱 Swap 🌸`)
+    .setDescription(`A significant swap transaction has been detected on ${chainName}`)
     .setColor(COLORS.SWAP)
     .addFields([
       { name: 'SEED 🌱 Bought', value: formatNumber(safeAmount), inline: true },
       { name: 'USD Value 💵', value: formatCurrency(safeUsdValue), inline: true },
-      { name: 'Tx Hash', value: formatTxHash(txHash) }
+      { name: '🔗 Chain', value: chainName, inline: true },
+      { name: 'Tx Hash', value: formatTxHash(txHash, chainId), inline: false }
     ])
     .setFooter({ text: 'Garden Finance Bot • Swap Monitor' })
     .setTimestamp();
@@ -192,5 +230,7 @@ module.exports = {
   formatTxHash,
   formatCurrency,
   formatNumber,
-  truncateText
+  truncateText,
+  getExplorerUrl,
+  getChainEmoji
 };
