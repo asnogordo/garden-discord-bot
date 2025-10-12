@@ -71,35 +71,6 @@ client.once('ready', async () => {
 
 client.on('messageCreate', handleMessage);
 
-client.on('messageReactionAdd', async (reaction, user) => {
-  // Handle partial reactions
-  if (reaction.partial) {
-    try {
-      await reaction.fetch();
-    } catch (error) {
-      console.error('Error fetching reaction:', error);
-      return;
-    }
-  }
-  
-  // Import and call the handler
-  const { handleReactionDismiss } = require('./messageHandlers');
-  await handleReactionDismiss(reaction, user);
-});
-
-// Clean up old tracked messages periodically (once per hour)
-setInterval(() => {
-  const { botResponseMessages } = require('./messageHandlers');
-  const now = Date.now();
-  const ONE_HOUR = 60 * 60 * 1000;
-  
-  for (const [messageId, data] of botResponseMessages.entries()) {
-    if (now - data.timestamp > ONE_HOUR) {
-      botResponseMessages.delete(messageId);
-    }
-  }
-}, 60 * 60 * 1000);
-
 client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 
@@ -118,6 +89,32 @@ client.on('interactionCreate', async interaction => {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
 
+    if (interaction.customId.startsWith('dismiss_')) {
+    const { botResponseMessages } = require('./messageHandlers');
+    const { isAboveBaseRole } = require('./utils');
+    
+    // Only allow users above base role to dismiss
+    if (!isAboveBaseRole(interaction.member)) {
+      await interaction.reply({ 
+        content: "You don't have permission to dismiss bot messages.", 
+        flags: MessageFlags.Ephemeral 
+      });
+      return;
+    }
+    
+    try {
+      await interaction.message.delete();
+      botResponseMessages.delete(interaction.message.id);
+      // No reply needed - message is deleted
+    } catch (error) {
+      console.error('Error dismissing message:', error);
+      await interaction.reply({ 
+        content: 'Failed to dismiss message', 
+        flags: MessageFlags.Ephemeral 
+      });
+    }
+    return;
+  }
   if (interaction.customId.startsWith('ban_')) {
     const parts = interaction.customId.split('_');
     const userId = parts[1];

@@ -1,5 +1,6 @@
 // utils.js
 const config = require('./config');
+const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 
 // Cache the protected roles
 let protectedRoleIds = null;
@@ -154,6 +155,49 @@ function isLikelyQuestion(content) {
   return false;
 }
 
+/**
+ * Send a bot reply with optional dismiss button for elevated users
+ * @param {Message} message - The message to reply to
+ * @param {string|Object} content - Reply content (string or object with content/embeds)
+ * @param {Object} options - Additional options (files, components, etc.)
+ * @returns {Promise<Message>} The bot's reply message
+ */
+async function sendBotReply(message, content, options = {}) {
+  // Lazy load to avoid circular dependency
+  const { botResponseMessages } = require('./messageHandlers');
+  
+  // Prepare reply options
+  const replyOptions = typeof content === 'string' 
+    ? { content, ...options }
+    : { ...content, ...options };
+  
+  // Add dismiss button only for users above base role
+  if (message.member && isAboveBaseRole(message.member)) {
+    const dismissButton = new ButtonBuilder()
+      .setCustomId(`dismiss_${message.id}`)
+      .setLabel('meh')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('👎');
+    
+    // If there are existing components, append to them, otherwise create new array
+    if (replyOptions.components) {
+      replyOptions.components.push(new ActionRowBuilder().addComponents(dismissButton));
+    } else {
+      replyOptions.components = [new ActionRowBuilder().addComponents(dismissButton)];
+    }
+  }
+  
+  const botReply = await message.reply(replyOptions);
+  
+  // Track the message for cleanup
+  botResponseMessages.set(botReply.id, {
+    triggeredBy: message.author.id,
+    timestamp: Date.now()
+  });
+  
+  return botReply;
+}
+
 module.exports = {
   formatNumber,
   codeBlock,
@@ -165,5 +209,6 @@ module.exports = {
   isAboveBaseRole,
   hasProtectedRole,
   canBeModerated,
-  isLikelyQuestion
+  isLikelyQuestion,
+  sendBotReply 
 };

@@ -5,7 +5,14 @@ const {
   GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID, EXCLUDED_CHANNELS,
   EXCLUDED_CHANNEL_PATTERNS,PROTECTED_ROLE_IDS
 } = require('./config');
-const { codeBlock, helloMsgReply, pickFromList, isLikelyQuestion,canBeModerated } = require('./utils');
+const { 
+  codeBlock, 
+  helloMsgReply, 
+  pickFromList, 
+  isLikelyQuestion,
+  canBeModerated,
+  sendBotReply // Add this import
+} = require('./utils');
 const { 
   ADDRESSES_EMBEDDED_MSG, 
   createWarningMessageEmbed
@@ -318,145 +325,69 @@ async function handleMessage(message) {
       }
     }
     
-  if (wenMoon.test(message.content)) {
-    const botReply = await message.reply(pickMoon());
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (wenLambo.test(message.content)) {
-    const botReply = await message.reply(pickLambo());
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (meaningOfLife.test(message.content)) {
-    const botReply = await message.reply(pickMeaningOfLife());
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (wenNetwork.test(message.content)) {
-    const botReply = await message.reply(pickWorkingOnIt());
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (wenDuneAnalytics.test(message.content)) {
-    const botReply = await message.reply(
-      "Check out the official dune dashboard 📊 here: <https://dune.com/garden_finance/gardenfinance>"
-    );
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (wenDude.test(message.content)) {
-    const botReply = await message.reply(pickDude());
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (wenStake.test(message.content)) {
-    const botReply = await message.reply(
-      'You can stake in increments of 2,100 SEED for 6 month, 12 month, 24 months, 48 months or permanently.\nYou can also burn 21,000 SEED for an Gardener Pass NFT for maximum voting power.\n\n For more info, and to start staking, visit <https://app.garden.finance/stake/>.'
-    );
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (wenVote.test(message.content)) {
-    const botReply = await message.reply(
-      'Garden Snapshot can be found at <https://snapshot.org/#/gardenfinance.eth>. SEED stakers will eventually be able to vote on their favorite fillers. For more details, check out <https://garden.finance/blog/market-making-and-staking/>',
-    );
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (contractAddress.test(message.content)) {
-    const botReply = await message.channel.send({ embeds: [ADDRESSES_EMBEDDED_MSG] });
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (totalSupply.test(message.content)) {
-    const botReply = await message.reply(
-      "SEED's total supply is 147,000,000.\n\nKeep in mind not everything will be in circulation at launch. For more info, check <https://garden.finance/blog/wbtc-garden-introducing-seed/>",
-    );
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (howToGetSeed.test(message.content)) {
-    const botReply = await message.reply(
-      "You can swap for SEED on Cowswap 🐮\n\n" +
-      "**Ethereum:**\n" +
-      "<https://swap.cow.fi/#/1/swap/WETH/0x5eed99d066a8CaF10f3E4327c1b3D8b673485eED>\n\n" +
-      "View the ERC20 contract address for SEED on Etherscan: <https://etherscan.io/token/0x5eed99d066a8CaF10f3E4327c1b3D8b673485eED>"
-    );
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (howToStakeOrClaim.test(message.content)) {
-    const botReply = await message.reply(
-      "Stake SEED 🌱 to earn fees in BTC or to claim BTC rewards, visit <https://app.garden.finance/stake/>\n\n",
-    );
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (wenDefillama.test(message.content)) {
-    const botReply = await message.reply(
-      "Garden's 🌸 Defillama page can be found here:\n<https://defillama.com/protocol/garden>",
-    );
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (gardenExplorer.test(message.content)) {
-    const botReply = await message.reply(
-      "You can check your transaction status at Garden's explorer page 🌸: <https://explorer.garden.finance/>"
-    );
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (stakingIssues.test(message.content)) {
-    const botReply = await message.reply(`If you are having issues with staking, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (swapIssues.test(message.content)) {
-    const botReply = await message.reply(`If you're experiencing issues with an in progress swap, please open a support ticket in <#${SUPPORT_CHANNEL_ID}> and include your order ID.`);
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (claimingIssues.test(message.content)) {
-    const botReply = await message.reply(`If you are having issues claiming $SEED, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (orderIssues.test(message.content) || transactionIssues.test(message.content)) {
-    const botReply = await message.reply(`If you have questions about a transaction or need help with a refund, please provide your order ID and open a support ticket in <#${SUPPORT_CHANNEL_ID}>`);
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  } else if (metricsAnalytics.test(message.content) && isLikelyQuestion(message.content)) {
-    const botReply = await message.reply(
-      "You can check Garden metrics on:\n\n" +
-      "🔍 **Garden Explorer**: <https://explorer.garden.finance/>\n" +
-      "📊 **Dune**: <https://dune.com/garden_finance/gardenfinance>\n" +
-      "📈 **DefiLlama**: <https://defillama.com/protocol/garden>"
-    );
-    botResponseMessages.set(botReply.id, {
-      triggeredBy: message.author.id,
-      timestamp: Date.now()
-    });
-  }
+if (wenMoon.test(message.content)) {
+  await sendBotReply(message, pickMoon());
+} else if (wenLambo.test(message.content)) {
+  await sendBotReply(message, pickLambo());
+} else if (meaningOfLife.test(message.content)) {
+  await sendBotReply(message, pickMeaningOfLife());
+} else if (wenNetwork.test(message.content)) {
+  await sendBotReply(message, pickWorkingOnIt());
+} else if (wenDuneAnalytics.test(message.content)) {
+  await sendBotReply(message, 
+    "Check out the official dune dashboard 📊 here: <https://dune.com/garden_finance/gardenfinance>"
+  );
+} else if (wenDude.test(message.content)) {
+  await sendBotReply(message, pickDude());
+} else if (wenStake.test(message.content)) {
+  await sendBotReply(message,
+    'You can stake in increments of 2,100 SEED for 6 month, 12 month, 24 months, 48 months or permanently.\nYou can also burn 21,000 SEED for an Gardener Pass NFT for maximum voting power.\n\n For more info, and to start staking, visit <https://app.garden.finance/stake/>.'
+  );
+} else if (wenVote.test(message.content)) {
+  await sendBotReply(message,
+    'Garden Snapshot can be found at <https://snapshot.org/#/gardenfinance.eth>. SEED stakers will eventually be able to vote on their favorite fillers. For more details, check out <https://garden.finance/blog/market-making-and-staking/>',
+  );
+} else if (contractAddress.test(message.content)) {
+  await sendBotReply(message, { embeds: [ADDRESSES_EMBEDDED_MSG] });
+} else if (totalSupply.test(message.content)) {
+  await sendBotReply(message,
+    "SEED's total supply is 147,000,000.\n\nKeep in mind not everything will be in circulation at launch. For more info, check <https://garden.finance/blog/wbtc-garden-introducing-seed/>",
+  );
+} else if (howToGetSeed.test(message.content)) {
+  await sendBotReply(message,
+    "You can swap for SEED on Cowswap 🐮\n\n" +
+    "**Ethereum:**\n" +
+    "<https://swap.cow.fi/#/1/swap/WETH/0x5eed99d066a8CaF10f3E4327c1b3D8b673485eED>\n\n" +
+    "View the ERC20 contract address for SEED on Etherscan: <https://etherscan.io/token/0x5eed99d066a8CaF10f3E4327c1b3D8b673485eED>"
+  );
+} else if (howToStakeOrClaim.test(message.content)) {
+  await sendBotReply(message,
+    "Stake SEED 🌱 to earn fees in BTC or to claim BTC rewards, visit <https://app.garden.finance/stake/>\n\n",
+  );
+} else if (wenDefillama.test(message.content)) {
+  await sendBotReply(message,
+    "Garden's 🌸 Defillama page can be found here:\n<https://defillama.com/protocol/garden>",
+  );
+} else if (gardenExplorer.test(message.content)) {
+  await sendBotReply(message,
+    "You can check your transaction status at Garden's explorer page 🌸: <https://explorer.garden.finance/>"
+  );
+} else if (stakingIssues.test(message.content)) {
+  await sendBotReply(message, `If you are having issues with staking, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
+} else if (swapIssues.test(message.content)) {
+  await sendBotReply(message, `If you're experiencing issues with an in progress swap, please open a support ticket in <#${SUPPORT_CHANNEL_ID}> and include your order ID.`);
+} else if (claimingIssues.test(message.content)) {
+  await sendBotReply(message, `If you are having issues claiming $SEED, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
+} else if (orderIssues.test(message.content) || transactionIssues.test(message.content)) {
+  await sendBotReply(message, `If you have questions about a transaction or need help with a refund, please provide your order ID and open a support ticket in <#${SUPPORT_CHANNEL_ID}>`);
+} else if (metricsAnalytics.test(message.content) && isLikelyQuestion(message.content)) {
+  await sendBotReply(message,
+    "You can check Garden metrics on:\n\n" +
+    "🔍 **Garden Explorer**: <https://explorer.garden.finance/>\n" +
+    "📊 **Dune**: <https://dune.com/garden_finance/gardenfinance>\n" +
+    "📈 **DefiLlama**: <https://defillama.com/protocol/garden>"
+  );
+}
   } catch (e) {
     console.error('Something failed handling a message', e);
   } finally {
@@ -1465,42 +1396,6 @@ async function handleUnauthorizedUrl(message) {
   }
 }
 
-//  handle reaction-based dismissal
-async function handleReactionDismiss(reaction, user) {
-  try {
-    // Skip if it's a bot reaction
-    if (user.bot) return;
-
-    const message = reaction.message;
-    
-    // Check if this message is a tracked bot response
-    if (!botResponseMessages.has(message.id)) return;
-
-    // Check if the reaction is :x: or 👎
-    if (reaction.emoji.name !== '❌' && reaction.emoji.name !== '👎') return;
-
-    // Fetch the reactor's member object
-    const member = await message.guild.members.fetch(user.id);
-    
-    // Check if user has role above base role
-    if (!isAboveBaseRole(member)) {
-      console.log(`User ${user.tag} doesn't have permission to dismiss bot messages`);
-      return;
-    }
-
-    console.log(`User ${user.tag} dismissed bot message ${message.id}`);
-    
-    // Delete the bot's message
-    if (message.deletable) {
-      await message.delete();
-      botResponseMessages.delete(message.id);
-      console.log(`Deleted bot message ${message.id} via reaction dismiss`);
-    }
-  } catch (error) {
-    console.error('Error handling reaction dismiss:', error);
-  }
-}
-
 // Add a function to check if a user has a protected role
 function hasProtectedRole(member) {
   if (!member || !member.roles) {
@@ -1698,6 +1593,5 @@ module.exports = {
   detectUrlObfuscation,
   hasDeceptiveUrl,
   containsUrlShortener,
-  handleReactionDismiss,
   botResponseMessages
 };
