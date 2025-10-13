@@ -171,20 +171,16 @@ async function sendBotReply(message, content, options = {}) {
     ? { content, ...options }
     : { ...content, ...options };
   
-  // Add dismiss button only for users above base role
-  if (message.member && isAboveBaseRole(message.member)) {
     const dismissButton = new ButtonBuilder()
-      .setCustomId(`dismiss_${message.id}`)
-      .setLabel('meh')
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji('👎');
-    
-    // If there are existing components, append to them, otherwise create new array
-    if (replyOptions.components) {
-      replyOptions.components.push(new ActionRowBuilder().addComponents(dismissButton));
-    } else {
-      replyOptions.components = [new ActionRowBuilder().addComponents(dismissButton)];
-    }
+    .setCustomId(`dismiss_${message.id}`)
+    .setLabel('Dismiss')  // No label
+    .setStyle(ButtonStyle.Secondary)
+  
+  // Always add the button, but permission check happens when clicked
+  if (replyOptions.components) {
+    replyOptions.components.push(new ActionRowBuilder().addComponents(dismissButton));
+  } else {
+    replyOptions.components = [new ActionRowBuilder().addComponents(dismissButton)];
   }
   
   const botReply = await message.reply(replyOptions);

@@ -106,15 +106,15 @@ client.on('interactionCreate', async interaction => {
 
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
-
-    if (interaction.customId.startsWith('dismiss_')) {
+  // Handle dismiss buttons
+  if (interaction.customId.startsWith('dismiss_')) {
     const { botResponseMessages } = require('./messageHandlers');
     const { isAboveBaseRole } = require('./utils');
     
     // Only allow users above base role to dismiss
     if (!isAboveBaseRole(interaction.member)) {
       await interaction.reply({ 
-        content: "You don't have permission to dismiss bot messages.", 
+        content: "Only moderators can dismiss bot messages.", 
         flags: MessageFlags.Ephemeral 
       });
       return;
@@ -123,7 +123,7 @@ client.on('interactionCreate', async interaction => {
     try {
       await interaction.message.delete();
       botResponseMessages.delete(interaction.message.id);
-      // No reply needed - message is deleted
+      // No reply needed since message is deleted
     } catch (error) {
       console.error('Error dismissing message:', error);
       await interaction.reply({ 
