@@ -1,3 +1,4 @@
+//discord utility helper file - discordUtils.js
 const messageCache = new Map();
 const MESSAGE_CACHE_TTL = 5000; // 5 seconds
 

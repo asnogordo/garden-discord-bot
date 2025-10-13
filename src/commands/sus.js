@@ -1,3 +1,4 @@
+//sus.js - call out suspicious users
 const { SlashCommandBuilder, EmbedBuilder,MessageFlags,ChannelType, InteractionContextType, PermissionFlagsBits } = require('discord.js');
 const { BASE_ROLE_ID, SCAM_CHANNEL_ID } = require('../config');
 const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
@@ -59,9 +60,7 @@ module.exports = {
                 .setName('reason')
                 .setDescription('Why is this user suspicious?')
                 .setRequired(true))
-        .setDMPermission(false)  // This makes it guild-only
-        // Remove the deprecated .setContexts line completely
-        .setDefaultMemberPermissions(PermissionFlagsBits.CreatePublicThreads), // No one can use it by default
+        .setDefaultMemberPermissions(null), // No one can use it by default
     async execute(interaction) {
         if (interaction.channelId !== SCAM_CHANNEL_ID) {
             await interaction.reply({ 

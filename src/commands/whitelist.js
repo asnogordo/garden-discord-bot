@@ -1,4 +1,4 @@
-// commands/whitelist.js
+// commands/whitelist.js - mark users as OK
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { addToWhitelist, removeFromWhitelist, isWhitelisted, getWhitelistInfo, getAllWhitelisted } = require('../whitelist');
 const { isAboveBaseRole } = require('../utils');
@@ -8,6 +8,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('whitelist')
     .setDescription('Manage the whitelist')
+    .setDefaultMemberPermissions(null)
     .addSubcommand(subcommand =>
       subcommand
         .setName('add')

@@ -61,12 +61,30 @@ let impersonationDetector = null;
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}!`);
   
+  // Log configuration
+  console.log('\n========== TRANSACTION MONITOR CONFIG ==========');
+  console.log(`Active Chains: ${config.ACTIVE_CHAINS.join(', ')}`);
+  console.log(`Poll Interval: ${config.POLL_INTERVAL / 1000} seconds (${config.POLL_INTERVAL / 60000} minutes)`);
+  console.log(`Large Swap Amount: ${config.LARGE_SWAP_AMOUNT.toLocaleString()} SEED`);
+  console.log(`Large Stake Amount: ${config.LARGE_STAKE_AMOUNT.toLocaleString()} SEED`);
+  console.log(`Alert Channel: ${config.CHANNEL_ID}`);
+  console.log('================================================\n');
+  
+  // Run initial check immediately
+  console.log('🚀 Running initial transaction check...');
+  try {
+    await checkTransfers(client);
+  } catch (error) {
+    console.error('Error during initial transaction check:', error);
+  }
+  
   // Start the monitoring interval for transactions
+  console.log(`⏰ Setting up periodic checks every ${config.POLL_INTERVAL / 60000} minutes...`);
   monitorIntervalId = setInterval(() => checkTransfers(client), config.POLL_INTERVAL);
   
   //const dryRun = true; // TOGGLE THIS FOR DRY RUN MODE
   //impersonationDetector = setupImpersonationDetection(client, { dryRun });  
-  console.log('Bot startup complete.');// Impersonation scan will run in 5 seconds...');
+  console.log('✅ Bot startup complete. Transaction monitoring is now active.');
 });
 
 client.on('messageCreate', handleMessage);
@@ -88,7 +106,33 @@ client.on('interactionCreate', async interaction => {
 
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
-
+  // Handle dismiss buttons
+  if (interaction.customId.startsWith('dismiss_')) {
+    const { botResponseMessages } = require('./messageHandlers');
+    const { isAboveBaseRole } = require('./utils');
+    
+    // Only allow users above base role to dismiss
+    if (!isAboveBaseRole(interaction.member)) {
+      await interaction.reply({ 
+        content: "Only moderators can dismiss bot messages.", 
+        flags: MessageFlags.Ephemeral 
+      });
+      return;
+    }
+    
+    try {
+      await interaction.message.delete();
+      botResponseMessages.delete(interaction.message.id);
+      // No reply needed since message is deleted
+    } catch (error) {
+      console.error('Error dismissing message:', error);
+      await interaction.reply({ 
+        content: 'Failed to dismiss message', 
+        flags: MessageFlags.Ephemeral 
+      });
+    }
+    return;
+  }
   if (interaction.customId.startsWith('ban_')) {
     const parts = interaction.customId.split('_');
     const userId = parts[1];
