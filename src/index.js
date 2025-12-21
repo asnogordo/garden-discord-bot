@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { checkTransfers } = require('./transactionMonitor');
 const config = require('./config');
-const { handleMessage, celebratoryGifs, apologyGifs  } = require('./messageHandlers');
+const { handleMessage, celebratoryGifs, apologyGifs, setupReportingSystem  } = require('./messageHandlers');
 const { setupImpersonationDetection } = require('./reportingSystem');
 const { REST, Routes } = require('discord.js');
 const { isAboveBaseRole, canBeModerated } = require('./utils');
@@ -81,6 +81,10 @@ client.once('ready', async () => {
   // Start the monitoring interval for transactions
   console.log(`⏰ Setting up periodic checks every ${config.POLL_INTERVAL / 60000} minutes...`);
   monitorIntervalId = setInterval(() => checkTransfers(client), config.POLL_INTERVAL);
+  
+  // Initialize the daily reporting system
+  console.log('📊 Setting up daily security reporting system...');
+  setupReportingSystem(client);
   
   //const dryRun = true; // TOGGLE THIS FOR DRY RUN MODE
   //impersonationDetector = setupImpersonationDetection(client, { dryRun });  
@@ -356,6 +360,11 @@ function gracefulShutdown() {
   // Clear the monitoring interval
   if (monitorIntervalId) {
     clearInterval(monitorIntervalId);
+  }
+  
+  // Clear the reporting interval
+  if (client.reportInterval) {
+    clearInterval(client.reportInterval);
   }
   
   // Clear any intervals from impersonation detector

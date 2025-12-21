@@ -296,6 +296,67 @@ async function handleMessage(message) {
       return;
     }
 
+    // NEW: Check if an admin is mentioning a user in the scam-report channel
+    // This allows admins to quickly create a suspicious activity thread for any user
+    if (channel.id === SCAM_CHANNEL_ID && isProtected && message.mentions.users.size > 0) {
+      console.log(`[ADMIN REPORT] Admin ${author.tag} mentioned users in scam-report channel`);
+      
+      for (const [mentionedUserId, mentionedUser] of message.mentions.users) {
+        // Don't create threads for bots
+        if (mentionedUser.bot) continue;
+        
+        try {
+          const mentionedMember = await guild.members.fetch(mentionedUserId).catch(() => null);
+          
+          // Don't create threads for other admins/protected members
+          if (mentionedMember && hasProtectedRole(mentionedMember)) {
+            console.log(`[ADMIN REPORT] Skipping ${mentionedUser.tag} - has protected role`);
+            continue;
+          }
+          
+          // Gather user info
+          let joinDate = "Unknown";
+          let displayName = mentionedUser.username;
+          let accountCreatedAt = mentionedUser.createdAt ? mentionedUser.createdAt.toDateString() : "Unknown";
+          let roles = "None";
+          
+          if (mentionedMember) {
+            joinDate = mentionedMember.joinedAt ? mentionedMember.joinedAt.toDateString() : "Unknown";
+            displayName = mentionedMember.displayName || mentionedUser.username;
+            
+            const memberRoles = mentionedMember.roles?.cache;
+            if (memberRoles && memberRoles.size > 0) {
+              roles = memberRoles
+                .filter(role => role.name !== '@everyone')
+                .map(role => role.name)
+                .join(', ') || "None";
+            }
+          }
+          
+          // Build detection summary
+          const detectionSummary = `🔎 **Manual Report**\n  └ Reported by: ${author.tag}\n  └ Reason: ${content.replace(/<@!?\d+>/g, '').trim() || 'No reason provided'}`;
+          
+          // Create the warning embed
+          const warningMessageEmbed = createWarningMessageEmbed(
+            accountCreatedAt, joinDate, displayName, mentionedUser.username, mentionedUserId, roles,
+            new Set(), 'N/A - Manual admin report', 0, detectionSummary
+          );
+          
+          // Send the threaded report
+          await sendThreadedReport(channel, mentionedUser, warningMessageEmbed);
+          console.log(`[ADMIN REPORT] Created suspicious activity thread for ${mentionedUser.tag} reported by ${author.tag}`);
+          
+          // React to confirm action was taken
+          await message.react('✅').catch(() => {});
+          
+        } catch (error) {
+          console.error(`[ADMIN REPORT] Failed to create thread for ${mentionedUser.tag}: ${error.message}`);
+          await message.react('❌').catch(() => {});
+        }
+      }
+      return; // Don't continue processing this message
+    }
+
     // Process messages for non-protected users
     if (!isProtected) {
       // Check if user is whitelisted
@@ -513,6 +574,31 @@ async function handleScamMessage(message) {
     console.log(`Mentions count: ${message.mentions.users.size}`);
     console.log(`Has @everyone: ${message.mentions.everyone ? 'YES' : 'NO'}`);
     
+    // Check if base role user is @mentioning non-protected users (common scam tactic)
+    // We allow base role users to mention admins/mods, but not other regular users
+    let baseRoleMentioningOthers = false;
+    if (hasOnlyBaseRole && message.mentions.users.size > 0) {
+      for (const [mentionedId, mentionedUser] of message.mentions.users) {
+        try {
+          const mentionedMember = await message.guild.members.fetch(mentionedId);
+          if (!hasProtectedRole(mentionedMember)) {
+            // Found a mentioned user without a protected role - this is suspicious
+            baseRoleMentioningOthers = true;
+            console.log(`Base role user mentioning non-protected user: ${mentionedUser.tag} - SUSPICIOUS`);
+            break;
+          } else {
+            console.log(`Base role user mentioning protected user: ${mentionedUser.tag} - OK`);
+          }
+        } catch (e) {
+          // If we can't fetch the member, be cautious and flag it
+          console.error(`Failed to fetch mentioned member ${mentionedId}: ${e.message}`);
+          baseRoleMentioningOthers = true;
+          break;
+        }
+      }
+    }
+    console.log(`Base role user mentioning non-protected users: ${baseRoleMentioningOthers ? 'YES - SUSPICIOUS' : 'NO'}`);
+    
     // Fetch mentions info
     let mentionedUsersHaveOnlyBaseRole = false;
     if (message.mentions.users.size > 0) {
@@ -599,10 +685,12 @@ async function handleScamMessage(message) {
     console.log(`\n--- FINAL DECISION ---`);
     
     // Modified condition to always catch dsc.gg and discord invites
+    // NEW: Also catch base role users who are @mentioning other users
     const shouldQuarantine = (
       ((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl || urlObfuscation.isObfuscated) && hasOnlyBaseRole) ||
       isTargetedScam || 
       isScamUser ||
+      baseRoleMentioningOthers ||  // NEW: Base role users mentioning anyone is suspicious
       (hasDscGg && !hasProtectedRole(member)) ||  // Always catch dsc.gg links unless protected
       (hasDiscordInvite && !hasProtectedRole(member) && !content.includes('garden.finance') || // Always catch discord invites unless protected or official
       isForwarded && hasOnlyBaseRole) //disallow forwarded messages by regular users
@@ -625,7 +713,8 @@ async function handleScamMessage(message) {
         isScamContent: isScamContent,
         isTargetedScam: isTargetedScam,
         isScamUser: isScamUser,
-        hasDscGg: hasDscGg
+        hasDscGg: hasDscGg,
+        baseRoleMentioningOthers: baseRoleMentioningOthers  // NEW
       };
       
       await quarantineMessage(message, new Set([channel.id]), detectionReason);
@@ -749,6 +838,7 @@ async function quarantineMessage(message, channelIds, detectionReason = {}) {
       if (detectionReason.hasReference) detectionDetails.push("  └ Has message reference");
       if (detectionReason.hasWebhook) detectionDetails.push("  └ Via webhook");
     }
+    if (detectionReason.baseRoleMentioningOthers) detectionDetails.push("👤 **Base Role User @Mentioning Others**");
     if (detectionReason.hasUrlObfuscation) detectionDetails.push("🔗 **URL Obfuscation**");
     if (detectionReason.hasExternalUrl) detectionDetails.push("🌐 **External URL**");
     if (detectionReason.hasShortenerUrl) detectionDetails.push("📎 **URL Shortener**");
@@ -1377,6 +1467,57 @@ async function handleUnauthorizedUrl(message) {
     
     // Log the action
     console.log(`Unauthorized URL removed from ${userName} (${userId})`);
+
+    // NEW: Create a suspicious activity thread for unauthorized URL
+    try {
+      const { guild, author, member } = message;
+      const reportChannel = await guild.channels.fetch(SCAM_CHANNEL_ID);
+      
+      if (reportChannel) {
+        // Gather user info for the report
+        let joinDate = "Unknown";
+        let displayName = author.username;
+        let accountCreatedAt = author.createdAt ? author.createdAt.toDateString() : "Unknown";
+        let roles = "None";
+        
+        try {
+          if (member) {
+            joinDate = member.joinedAt ? member.joinedAt.toDateString() : "Unknown";
+            displayName = member.displayName || "Unknown";
+            
+            const memberRoles = member.roles?.cache;
+            if (memberRoles && memberRoles.size > 0) {
+              roles = memberRoles
+                .filter(role => role.name !== '@everyone')
+                .map(role => role.name)
+                .join(', ') || "None";
+            }
+          }
+        } catch (memberError) {
+          console.error(`Error getting member details: ${memberError.message}`);
+        }
+        
+        // Build detection summary for unauthorized URL
+        let detectionDetails = ["🔗 **Unauthorized URL**"];
+        if (hasShortenerUrl) detectionDetails.push("📎 **URL Shortener**");
+        if (hasDiscordInvite) detectionDetails.push("💬 **Discord Invite**");
+        if (urlObfuscation.isObfuscated) detectionDetails.push("🕵️ **URL Obfuscation**");
+        
+        const detectionSummary = detectionDetails.join('\n');
+        
+        // Create the warning embed
+        const warningMessageEmbed = createWarningMessageEmbed(
+          accountCreatedAt, joinDate, displayName, author.username, userId, roles, 
+          new Set([message.channel.id]), content, 1, detectionSummary
+        );
+        
+        // Send the threaded report
+        await sendThreadedReport(reportChannel, author, warningMessageEmbed);
+        console.log(`Created suspicious activity thread for unauthorized URL from ${userName}`);
+      }
+    } catch (threadError) {
+      console.error(`Failed to create suspicious activity thread for unauthorized URL: ${threadError.message}`);
+    }
 
     if (global.updateReportData) {
       // Determine the type of scam
