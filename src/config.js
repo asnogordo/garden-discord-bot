@@ -78,6 +78,11 @@ module.exports = {
   LARGE_SWAP_AMOUNT: parseFloat(process.env.LARGE_SWAP_AMOUNT) || 15000,
   LARGE_STAKE_AMOUNT: parseFloat(process.env.LARGE_STAKE_AMOUNT) || 20999,
 
+  // Security Report Configuration
+  // 0 = disabled, otherwise number of minutes between reports
+  // Examples: 5 = every 5 minutes (testing), 1440 = every 24 hours (production)
+  REPORT_INTERVAL_MINUTES: parseInt(process.env.REPORT_INTERVAL_MINUTES) || 0,
+
   // Uniswap Pool ABI
   UNISWAP_POOL_ABI: [
     {
