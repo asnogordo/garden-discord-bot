@@ -147,6 +147,12 @@ const scamPatterns = [
   /(?:8|5|10)\+?\s*years?\s+(?:of\s+)?experience/i,
   /please\s+(?:feel\s+free\s+to\s+)?contact\s+me/i,
   /(?:open\s+to|available\s+for|looking\s+for).*(?:collaboration|projects|opportunities|joining)/i,
+  // Wallet phishing patterns (Phase 3)
+  /(?:verify|validate|sync|connect)\s+(?:your\s+)?wallet/i,
+  /wallet\s+(?:verification|validation|sync|connection)\s+(?:required|needed)/i,
+  /your\s+account\s+(?:has\s+been\s+)?(?:flagged|suspended|locked|compromised)/i,
+  /recovery\s+tool/i,
+  /claim\s+(?:your\s+)?(?:unclaimed\s+)?(?:rewards?|airdrop|tokens?)\s+here/i,
 ];
 
 const urlPattern = /https?:\/\/([^\/\s]+)([^\s]*)/gi;
@@ -171,6 +177,12 @@ const transactionIssues = /\b(?:transaction|refund|sent|transfer|overpaid|paymen
 const orderIssues = /\b(?:order)\b(?!.*\b(?:no|resolved?|fixed?)\b)(?!.*\b(?:how|what|when|where|why|anyone)\b).*\b(?:stuck|pending|fail(?:ed|ing)?|issue|problem|long time)\b/i;
 const gardenExplorer = /(?:wh?(?:ere|at|en)|how|can|do I|is|find|see|check|get|open|access|view|use|link to)(?:\s+\w+){0,5}\s+(?:garden\s*)?(?:explorer|tx\s*explorer|transaction\s*explorer)/i;
 const metricsAnalytics = /(?:how|where|what|which|can|is there).*(?:(?:check|see|find|view|get)\s+(?:garden|seed)?\s*(?:analytics|metrics|stats|statistics|volume|data|chart|graph|dashboard|numbers|tvl))|(?:defi.?llama|dune\s*analytics|explorer)/i;
+
+// New support detection patterns (Phase 2)
+const bridgeIssues = /\b(?:bridge|bridging)\b.*\b(?:not?\s*work|stuck|fail|error|loading|issue|problem)\b/i;
+const balanceIssues = /\b(?:balance|assets?|rewards?)\b.*\b(?:not?\s*show|missing|stuck|0|zero|gone|wrong)\b/i;
+const fundsStuckIssues = /\b(?:funds?|money)\b.*\b(?:stuck|missing|lost|gone)\b/i;
+const signingIssues = /\bkeep(?:s)?\s+signing\b/i;
 
 // GIF lists
 const wenMoonGifs = [
@@ -448,6 +460,14 @@ if (wenMoon.test(message.content)) {
     "📊 **Dune**: <https://dune.com/garden_finance/gardenfinance>\n" +
     "📈 **DefiLlama**: <https://defillama.com/protocol/garden>"
   );
+} else if (bridgeIssues.test(message.content)) {
+  await sendBotReply(message, `If you're experiencing issues with bridging, please open a support ticket in <#${SUPPORT_CHANNEL_ID}> and include your order ID. Note: Our team will never DM you first.`);
+} else if (balanceIssues.test(message.content)) {
+  await sendBotReply(message, `If your balance or assets aren't showing correctly, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>. Note: Our team will never DM you first.`);
+} else if (fundsStuckIssues.test(message.content)) {
+  await sendBotReply(message, `If your funds appear stuck, please open a support ticket in <#${SUPPORT_CHANNEL_ID}> with your order ID or transaction hash. Note: Our team will never DM you first.`);
+} else if (signingIssues.test(message.content)) {
+  await sendBotReply(message, `If you're stuck in a signing loop, try refreshing the page or clearing your browser cache. If the issue persists, please open a support ticket in <#${SUPPORT_CHANNEL_ID}>.`);
 }
   } catch (e) {
     console.error('Something failed handling a message', e);
@@ -569,6 +589,13 @@ async function handleScamMessage(message) {
     console.log(`Has only base role: ${hasOnlyBaseRole ? 'YES' : 'NO'}`);
     console.log(`Roles: ${Array.from(userRoles.values()).map(r => r.name).join(', ')}`);
     
+    // Check if user joined recently (Phase 3 - behavioral detection)
+    const joinedAt = member.joinedAt;
+    const joinedRecently = joinedAt && (Date.now() - joinedAt.getTime()) < 10 * 60 * 1000; // 10 minutes
+    console.log(`\n--- Join time check ---`);
+    console.log(`Joined at: ${joinedAt ? joinedAt.toISOString() : 'Unknown'}`);
+    console.log(`Joined recently (<10 min): ${joinedRecently ? 'YES - ELEVATED RISK' : 'NO'}`);
+    
     // Check mentions
     console.log(`\n--- Mention check ---`);
     console.log(`Mentions count: ${message.mentions.users.size}`);
@@ -686,16 +713,21 @@ async function handleScamMessage(message) {
     
     // Modified condition to always catch dsc.gg and discord invites
     // NEW: Also catch base role users who are @mentioning other users
+    // NEW: Behavioral detection for users who joined recently
+    const recentJoinerSuspicious = joinedRecently && hasOnlyBaseRole && (hasAnyMentions || hasExternalUrl);
+    
     const shouldQuarantine = (
       ((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl || urlObfuscation.isObfuscated) && hasOnlyBaseRole) ||
       isTargetedScam || 
       isScamUser ||
-      baseRoleMentioningOthers ||  // NEW: Base role users mentioning anyone is suspicious
+      baseRoleMentioningOthers ||  // Base role users mentioning anyone is suspicious
+      recentJoinerSuspicious ||    // NEW: Users who joined <10 min ago with suspicious behavior
       (hasDscGg && !hasProtectedRole(member)) ||  // Always catch dsc.gg links unless protected
       (hasDiscordInvite && !hasProtectedRole(member) && !content.includes('garden.finance') || // Always catch discord invites unless protected or official
       isForwarded && hasOnlyBaseRole) //disallow forwarded messages by regular users
     );
     
+    console.log(`Recent joiner suspicious: ${recentJoinerSuspicious ? 'YES' : 'NO'}`);
     console.log(`Should quarantine: ${shouldQuarantine ? 'YES' : 'NO'}`);
     
     if (shouldQuarantine) {
@@ -714,7 +746,8 @@ async function handleScamMessage(message) {
         isTargetedScam: isTargetedScam,
         isScamUser: isScamUser,
         hasDscGg: hasDscGg,
-        baseRoleMentioningOthers: baseRoleMentioningOthers  // NEW
+        baseRoleMentioningOthers: baseRoleMentioningOthers,
+        recentJoinerSuspicious: recentJoinerSuspicious  // NEW
       };
       
       await quarantineMessage(message, new Set([channel.id]), detectionReason);
@@ -839,6 +872,7 @@ async function quarantineMessage(message, channelIds, detectionReason = {}) {
       if (detectionReason.hasWebhook) detectionDetails.push("  └ Via webhook");
     }
     if (detectionReason.baseRoleMentioningOthers) detectionDetails.push("👤 **Base Role User @Mentioning Others**");
+    if (detectionReason.recentJoinerSuspicious) detectionDetails.push("🆕 **New User (<10 min) with Suspicious Behavior**");
     if (detectionReason.hasUrlObfuscation) detectionDetails.push("🔗 **URL Obfuscation**");
     if (detectionReason.hasExternalUrl) detectionDetails.push("🌐 **External URL**");
     if (detectionReason.hasShortenerUrl) detectionDetails.push("📎 **URL Shortener**");
@@ -1547,180 +1581,204 @@ function hasProtectedRole(member) {
   return PROTECTED_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
 }
 
-    // Create more detailed report
-    async function sendDetailedReport(guild) {
-      try {
-        const { EmbedBuilder } = require('discord.js');
-        const config = require('./config');
-        
-        const reportChannel = await guild.channels.fetch(config.SCAM_CHANNEL_ID);
-        if (!reportChannel) {
-          console.error(`Report channel with ID ${config.SCAM_CHANNEL_ID} not found`);
-          return;
-        }
-
-        const now = new Date();
-        const formattedDate = now.toISOString().split('T')[0];
-        const formattedTime = now.toTimeString().split(' ')[0];
-
-        // Handle no interceptions case
-        if (reportData.interceptCount === 0) {
-          await reportChannel.send({
-            embeds: [
-              new EmbedBuilder()
-                .setTitle(`📊 Daily Security Report - ${formattedDate}`)
-                .setColor('#00FF00')
-                .setDescription(`No scam attempts intercepted in the last 24 hours! 🎉`)
-                .setFooter({ text: 'Garden Security Bot - Daily Report' })
-                .setTimestamp()
-            ]
-          });
-          
-          console.log(`Sent empty daily report at ${formattedTime}`);
-          return;
-        }
-
-        const embed = new EmbedBuilder()
-          .setTitle(`📊 Daily Security Report - ${formattedDate}`)
-          .setColor('#FF0000')
-          .setDescription(`Total interceptions in the last 24 hours: **${reportData.interceptCount}**`)
-          .addFields(
-            { 
-              name: 'URL Shorteners', 
-              value: reportData.scamTypes.urlShorteners.toString(), 
-              inline: true 
-            },
-            { 
-              name: 'Discord Invites', 
-              value: reportData.scamTypes.discordInvites.toString(), 
-              inline: true 
-            },
-            { 
-              name: 'Encoded URLs', 
-              value: reportData.scamTypes.encodedUrls.toString(), 
-              inline: true 
-            },
-            { 
-              name: 'Other Scams', 
-              value: reportData.scamTypes.otherScams.toString(), 
-              inline: true 
-            }
-          )
-          .setFooter({ text: 'Garden Security Bot - Daily Report' })
-          .setTimestamp();
-
-        // Add top offenders if any exist
-        if (reportData.topScammers.size > 0) {
-          const topOffenders = Array.from(reportData.topScammers.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5)
-            .map(([userId, count], index) => `${index + 1}. <@${userId}>: ${count} violation${count !== 1 ? 's' : ''}`)
-            .join('\n');
-
-          if (topOffenders) {
-            embed.addFields({ name: 'Top Offenders', value: topOffenders });
-          }
-        } else {
-          embed.addFields({ 
-            name: 'Top Offenders', 
-            value: 'No repeat offenders.' 
-          });
-        }
-
-        await reportChannel.send({ embeds: [embed] });
-        console.log(`Sent detailed daily security report at ${formattedTime}`);
-      } catch (error) {
-        console.error('Error sending daily report:', error);
-      }
-    }
-
-    function setupReportingSystem(client) {
-      // Store report data
-      const reportData = {
-          interceptCount: 0,
-          lastReportTime: Date.now(),
-          scamTypes: {
-            urlShorteners: 0,
-            discordInvites: 0,
-            encodedUrls: 0,
-            otherScams: 0
-          },
-          topScammers: new Map()
-        };
-
-        console.log(`Reporting system initialized at ${new Date(reportData.lastReportTime).toISOString()}`);
-      
-      // Reset report data function
-      function resetReportData() {
-        reportData.interceptCount = 0;
-        reportData.scamTypes = {
-          urlShorteners: 0,
-          discordInvites: 0, 
-          encodedUrls: 0,
-          otherScams: 0
-        };
-        reportData.topScammers.clear();
-        console.log(`Report data reset at ${new Date().toISOString()}`);
-      }
-    
-      // Update stats function - expose this globally
-      global.updateReportData = function(type, userId) {
-        reportData.interceptCount++;
-        
-        // Update scam type counters
-        if (type && reportData.scamTypes[type] !== undefined) {
-          reportData.scamTypes[type]++;
-        } else {
-          reportData.scamTypes.otherScams++;
-        }
-        
-        // Track user violations if userId is provided
-        if (userId) {
-          const currentCount = reportData.topScammers.get(userId) || 0;
-          reportData.topScammers.set(userId, currentCount + 1);
-        }
-        
-        console.log(`Report data updated: ${type} by user ${userId || 'unknown'}, total count: ${reportData.interceptCount}`);
-      };
-    
-      // Run reports every 24 hours
-      const REPORT_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+function setupReportingSystem(client) {
+  const { EmbedBuilder } = require('discord.js');
+  const config = require('./config');
   
-      const intervalId = setInterval(async () => {
-        try {
-          const now = Date.now();
-          const guild = client.guilds.cache.first();
-          
-          if (!guild) {
-            console.error("No guild found");
-            return;
+  // Check if reporting is disabled
+  if (!config.REPORT_INTERVAL_MINUTES || config.REPORT_INTERVAL_MINUTES <= 0) {
+    console.log('📊 Security reporting system is DISABLED (REPORT_INTERVAL_MINUTES = 0 or not set)');
+    console.log('   Set REPORT_INTERVAL_MINUTES in .env to enable (e.g., 1440 for 24 hours, 5 for testing)');
+    return null;
+  }
+
+  const REPORT_INTERVAL_MS = config.REPORT_INTERVAL_MINUTES * 60 * 1000;
+  const CHECK_INTERVAL_MS = Math.min(REPORT_INTERVAL_MS, 60 * 60 * 1000); // Check at most every hour
+  
+  // Store report data
+  const reportData = {
+    interceptCount: 0,
+    lastReportTime: Date.now(),
+    scamTypes: {
+      urlShorteners: 0,
+      discordInvites: 0,
+      encodedUrls: 0,
+      otherScams: 0
+    },
+    topScammers: new Map()
+  };
+
+  console.log(`📊 Security reporting system initialized`);
+  console.log(`   Report interval: ${config.REPORT_INTERVAL_MINUTES} minutes`);
+  console.log(`   Check interval: ${CHECK_INTERVAL_MS / 60000} minutes`);
+  console.log(`   Started at: ${new Date(reportData.lastReportTime).toISOString()}`);
+  console.log(`   Next report expected around: ${new Date(reportData.lastReportTime + REPORT_INTERVAL_MS).toISOString()}`);
+
+  // Reset report data function
+  function resetReportData() {
+    reportData.interceptCount = 0;
+    reportData.scamTypes = {
+      urlShorteners: 0,
+      discordInvites: 0,
+      encodedUrls: 0,
+      otherScams: 0
+    };
+    reportData.topScammers.clear();
+    console.log(`📊 Report data reset at ${new Date().toISOString()}`);
+  }
+
+  // Send detailed report - NOW INSIDE setupReportingSystem so it has access to reportData
+  async function sendDetailedReport(guild) {
+    try {
+      const reportChannel = await guild.channels.fetch(config.SCAM_CHANNEL_ID);
+      if (!reportChannel) {
+        console.error(`📊 Report channel with ID ${config.SCAM_CHANNEL_ID} not found`);
+        return false;
+      }
+
+      const now = new Date();
+      const formattedDate = now.toISOString().split('T')[0];
+      const formattedTime = now.toTimeString().split(' ')[0];
+      const intervalDescription = config.REPORT_INTERVAL_MINUTES >= 1440 
+        ? `${Math.round(config.REPORT_INTERVAL_MINUTES / 1440)} day(s)` 
+        : `${config.REPORT_INTERVAL_MINUTES} minutes`;
+
+      // Handle no interceptions case
+      if (reportData.interceptCount === 0) {
+        await reportChannel.send({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle(`📊 Security Report - ${formattedDate}`)
+              .setColor('#00FF00')
+              .setDescription(`No scam attempts intercepted in the last ${intervalDescription}! 🎉`)
+              .setFooter({ text: `Garden Security Bot - Report Interval: ${intervalDescription}` })
+              .setTimestamp()
+          ]
+        });
+        
+        console.log(`📊 Sent empty security report at ${formattedTime}`);
+        return true;
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle(`📊 Security Report - ${formattedDate}`)
+        .setColor('#FF0000')
+        .setDescription(`Total interceptions in the last ${intervalDescription}: **${reportData.interceptCount}**`)
+        .addFields(
+          { 
+            name: 'URL Shorteners', 
+            value: reportData.scamTypes.urlShorteners.toString(), 
+            inline: true 
+          },
+          { 
+            name: 'Discord Invites', 
+            value: reportData.scamTypes.discordInvites.toString(), 
+            inline: true 
+          },
+          { 
+            name: 'Encoded URLs', 
+            value: reportData.scamTypes.encodedUrls.toString(), 
+            inline: true 
+          },
+          { 
+            name: 'Other Scams', 
+            value: reportData.scamTypes.otherScams.toString(), 
+            inline: true 
           }
-          
-          console.log(`Running report check at: ${new Date(now).toISOString()}`);
-          console.log(`Time since last report: ${(now - reportData.lastReportTime) / 3600000} hours`);
-          
-          // If it's been approximately 24 hours since the last report
-          if (now - reportData.lastReportTime >= REPORT_INTERVAL) {
-            console.log("24 hours elapsed, sending report...");
-            
-            await sendDetailedReport(guild);
-            
-            // Update last report time and reset data AFTER sending report
-            reportData.lastReportTime = now;
-            resetReportData();
-          } else {
-            console.log("Not time to send report yet");
-          }
-        } catch (error) {
-          console.error('Error in report interval handler:', error);
+        )
+        .setFooter({ text: `Garden Security Bot - Report Interval: ${intervalDescription}` })
+        .setTimestamp();
+
+      // Add top offenders if any exist
+      if (reportData.topScammers.size > 0) {
+        const topOffenders = Array.from(reportData.topScammers.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([userId, count], index) => `${index + 1}. <@${userId}>: ${count} violation${count !== 1 ? 's' : ''}`)
+          .join('\n');
+
+        if (topOffenders) {
+          embed.addFields({ name: 'Top Offenders', value: topOffenders });
         }
-      }, 60 * 60 * 1000); // Check every hour
-      
-      client.reportInterval = intervalId;
-      console.log('Security reporting system initialized - will send reports every 24 hours');
-      
-      return global.updateReportData;
+      } else {
+        embed.addFields({ 
+          name: 'Top Offenders', 
+          value: 'No repeat offenders.' 
+        });
+      }
+
+      await reportChannel.send({ embeds: [embed] });
+      console.log(`📊 Sent security report at ${formattedTime} (${reportData.interceptCount} interceptions)`);
+      return true;
+    } catch (error) {
+      console.error('📊 Error sending security report:', error);
+      return false;
     }
+  }
+
+  // Update stats function - expose this globally
+  global.updateReportData = function(type, userId) {
+    reportData.interceptCount++;
+    
+    // Update scam type counters
+    if (type && reportData.scamTypes[type] !== undefined) {
+      reportData.scamTypes[type]++;
+    } else {
+      reportData.scamTypes.otherScams++;
+    }
+    
+    // Track user violations if userId is provided
+    if (userId) {
+      const currentCount = reportData.topScammers.get(userId) || 0;
+      reportData.topScammers.set(userId, currentCount + 1);
+    }
+    
+    console.log(`📊 Report data updated: ${type} by user ${userId || 'unknown'}, total count: ${reportData.interceptCount}`);
+  };
+
+  // Set up the interval to check and send reports
+  const intervalId = setInterval(async () => {
+    try {
+      const now = Date.now();
+      const guild = client.guilds.cache.first();
+      
+      if (!guild) {
+        console.error("📊 No guild found for reporting");
+        return;
+      }
+      
+      const timeSinceLastReport = now - reportData.lastReportTime;
+      const timeUntilNextReport = REPORT_INTERVAL_MS - timeSinceLastReport;
+      
+      console.log(`📊 Report check at: ${new Date(now).toISOString()}`);
+      console.log(`   Time since last report: ${(timeSinceLastReport / 60000).toFixed(1)} minutes`);
+      console.log(`   Current intercept count: ${reportData.interceptCount}`);
+      
+      // If it's time to send a report
+      if (timeSinceLastReport >= REPORT_INTERVAL_MS) {
+        console.log(`📊 Report interval elapsed, sending report...`);
+        
+        const success = await sendDetailedReport(guild);
+        
+        if (success) {
+          // Update last report time and reset data AFTER sending report
+          reportData.lastReportTime = now;
+          resetReportData();
+          console.log(`📊 Next report expected around: ${new Date(now + REPORT_INTERVAL_MS).toISOString()}`);
+        }
+      } else {
+        console.log(`   Time until next report: ${(timeUntilNextReport / 60000).toFixed(1)} minutes`);
+      }
+    } catch (error) {
+      console.error('📊 Error in report interval handler:', error);
+    }
+  }, CHECK_INTERVAL_MS);
+  
+  client.reportInterval = intervalId;
+  console.log(`📊 Security reporting system active - reports every ${config.REPORT_INTERVAL_MINUTES} minutes`);
+  
+  return global.updateReportData;
+}
 
 module.exports = {
   handleMessage,
