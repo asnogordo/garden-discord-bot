@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { checkTransfers } = require('./transactionMonitor');
 const config = require('./config');
-const { handleMessage, celebratoryGifs, apologyGifs, setupReportingSystem  } = require('./messageHandlers');
+const { handleMessage, celebratoryGifs, apologyGifs, reviewCompleteGifs, setupReportingSystem  } = require('./messageHandlers');
 const { setupImpersonationDetection } = require('./reportingSystem');
 const { REST, Routes } = require('discord.js');
 const { isAboveBaseRole, canBeModerated } = require('./utils');
@@ -137,6 +137,63 @@ client.on('interactionCreate', async interaction => {
     }
     return;
   }
+  
+  // Handle archive thread buttons (from !newusers command)
+  if (interaction.customId.startsWith('archive_thread_')) {
+    const { isAboveBaseRole } = require('./utils');
+    
+    // Only allow users above base role to archive
+    if (!isAboveBaseRole(interaction.member)) {
+      await interaction.reply({ 
+        content: "Only moderators can archive review threads.", 
+        flags: MessageFlags.Ephemeral 
+      });
+      return;
+    }
+    
+    try {
+      // Check if we're in a thread
+      if (!interaction.channel.isThread()) {
+        await interaction.reply({ 
+          content: 'This button only works in threads.', 
+          flags: MessageFlags.Ephemeral 
+        });
+        return;
+      }
+      
+      // Random completion messages
+      const completionMessages = [
+        '✅ Review complete! Great work, detective! 🔍',
+        '✅ All done! The garden is safer now! 🌱',
+        '✅ Investigation wrapped up! Nice job! 👏',
+        '✅ Review finished! Another job well done! 💪',
+        '✅ Case closed! Thanks for keeping us safe! 🛡️'
+      ];
+      const randomMessage = completionMessages[Math.floor(Math.random() * completionMessages.length)];
+      
+      // Send completion GIF
+      const randomGif = reviewCompleteGifs[Math.floor(Math.random() * reviewCompleteGifs.length)];
+      
+      await interaction.reply({ 
+        content: randomMessage,
+        files: [randomGif]
+      });
+      
+      // Small delay to let the GIF load before archiving
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // Archive the thread
+      await interaction.channel.setArchived(true, `Review completed by ${interaction.user.tag}`);
+    } catch (error) {
+      console.error('Error archiving thread:', error);
+      await interaction.reply({ 
+        content: `Failed to archive thread: ${error.message}`, 
+        flags: MessageFlags.Ephemeral 
+      });
+    }
+    return;
+  }
+  
   if (interaction.customId.startsWith('ban_')) {
     const parts = interaction.customId.split('_');
     const userId = parts[1];
