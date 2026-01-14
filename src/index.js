@@ -196,6 +196,15 @@ client.on('interactionCreate', async interaction => {
         
         await interaction.reply({ embeds: [logEmbed] });
 
+        // Track this ban for the daily report leaderboard
+        if (global.updateAdminBanCount) {
+          global.updateAdminBanCount(
+            moderator.id, 
+            moderator.displayName || moderator.user.username,
+            moderator.user.displayAvatarURL({ dynamic: true })
+          );
+        }
+
         // Send a random celebratory GIF
         const randomGif = celebratoryGifs[Math.floor(Math.random() * celebratoryGifs.length)];
         await interaction.followUp({ 
