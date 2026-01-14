@@ -247,6 +247,22 @@ const apologyGifs = [
   'https://c.tenor.com/WG43Fcsm2dkAAAAd/tenor.gif'
 ];
 
+const reviewStartGifs = [
+  'https://c.tenor.com/W53Y-eU2T1AAAAAd/tenor.gif',
+  'https://c.tenor.com/gqaAfNY28isAAAAC/tenor.gif',
+  'https://c.tenor.com/_V8TTKAXYB0AAAAC/tenor.gif',
+  // Add more investigation/detective GIFs here
+];
+
+const reviewCompleteGifs = [
+  'https://c.tenor.com/tsD596QZvKAAAAAC/tenor.gif',
+  'https://c.tenor.com/u53w---Rf9EAAAAd/tenor.gif',
+  'https://c.tenor.com/Nh4zsPX9mYsAAAAd/tenor.gif'
+];
+
+const pickReviewStart = pickFromList(reviewStartGifs);
+const pickReviewComplete = pickFromList(reviewCompleteGifs);
+
 const pickMoon = pickFromList(wenMoonGifs);
 const pickLambo = pickFromList(wenLamboGifs);
 const pickMeaningOfLife = pickFromList(meaningOfLifeGifs);
@@ -1020,122 +1036,143 @@ async function handleNewUsersCommand(message, guild, days) {
     return;
   }
   
-  // Create embeds for new users (max 10 per embed to avoid hitting limits)
-  const membersArray = Array.from(newMembers.values());
-  const chunks = [];
-  const MEMBERS_PER_EMBED = 10;
+  // Create a thread for this review
+  const threadName = `New Users Review - ${new Date().toLocaleDateString()} (${days}d)`;
+  let thread;
   
-  for (let i = 0; i < membersArray.length; i += MEMBERS_PER_EMBED) {
-    chunks.push(membersArray.slice(i, i + MEMBERS_PER_EMBED));
+  try {
+    thread = await message.channel.threads.create({
+      name: threadName.substring(0, 100),
+      autoArchiveDuration: 1440, // 24 hours
+      type: ChannelType.PublicThread,
+      reason: `New users review requested by ${message.author.tag}`
+    });
+  } catch (error) {
+    console.error(`[NEWUSERS] Failed to create thread: ${error.message}`);
+    await message.reply(`❌ Failed to create review thread: ${error.message}`);
+    return;
   }
   
-  // Send summary first
+  // React to confirm thread was created
+  await message.react('✅').catch(() => {});
+  
+  // Send summary to thread
   const summaryEmbed = new EmbedBuilder()
     .setTitle(`📋 New Users Review - Last ${days} Day(s)`)
     .setColor('#3498DB')
-    .setDescription(`Found **${newMembers.size}** new member${newMembers.size !== 1 ? 's' : ''}`)
+    .setDescription(`Found **${newMembers.size}** new member${newMembers.size !== 1 ? 's' : ''}\n\nReview the users below and take action as needed. When done, simply archive or delete this thread.`)
     .addFields(
       { name: 'Cutoff Date', value: cutoffDate.toDateString(), inline: true },
-      { name: 'Total New Users', value: newMembers.size.toString(), inline: true }
+      { name: 'Total New Users', value: newMembers.size.toString(), inline: true },
+      { name: 'Requested By', value: message.author.tag, inline: true }
     )
-    .setFooter({ text: 'Use the buttons below to take action on suspicious users' })
+    .setFooter({ text: 'Archive this thread when review is complete' })
     .setTimestamp();
   
-  // Add dismiss button
-  const dismissButton = new ButtonBuilder()
-    .setCustomId(`dismiss_${message.id}`)
-    .setLabel('Dismiss All')
+  // Add archive button
+  const archiveButton = new ButtonBuilder()
+    .setCustomId(`archive_thread_${thread.id}`)
+    .setLabel('✓ Archive Thread (Done)')
     .setStyle(ButtonStyle.Secondary);
   
-  const summaryRow = new ActionRowBuilder().addComponents(dismissButton);
+  const summaryRow = new ActionRowBuilder().addComponents(archiveButton);
   
-  const summaryMessage = await message.reply({ 
+  await thread.send({ 
     embeds: [summaryEmbed], 
     components: [summaryRow] 
   });
   
-  // Track for dismiss functionality
-  botResponseMessages.set(summaryMessage.id, {
-    triggeredBy: message.author.id,
-    timestamp: Date.now()
+  // Send investigation start GIF
+  await thread.send({ 
+    content: '🔍 Starting investigation...',
+    files: [pickReviewStart()] 
   });
   
-  // Send detailed embeds for each chunk
-  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-    const chunk = chunks[chunkIndex];
+  // Send user cards to thread
+  const membersArray = Array.from(newMembers.values());
+  
+  for (const member of membersArray) {
+    const accountAge = Math.floor((Date.now() - member.user.createdAt) / (1000 * 60 * 60 * 24));
+    const joinedAgo = Math.floor((Date.now() - member.joinedAt) / (1000 * 60 * 60 * 24));
+    const joinedHoursAgo = Math.floor((Date.now() - member.joinedAt) / (1000 * 60 * 60));
     
-    for (const member of chunk) {
-      const accountAge = Math.floor((Date.now() - member.user.createdAt) / (1000 * 60 * 60 * 24));
-      const joinedAgo = Math.floor((Date.now() - member.joinedAt) / (1000 * 60 * 60 * 24));
-      const joinedHoursAgo = Math.floor((Date.now() - member.joinedAt) / (1000 * 60 * 60));
-      
-      // Get roles
-      const roles = member.roles.cache
-        .filter(role => role.name !== '@everyone')
-        .map(role => role.name)
-        .join(', ') || 'None';
-      
-      // Create risk indicators
-      const riskIndicators = [];
-      if (accountAge < 7) riskIndicators.push('🚨 Account < 7 days old');
-      if (accountAge < 30) riskIndicators.push('⚠️ Account < 30 days old');
-      if (member.displayName !== member.user.username) riskIndicators.push('📝 Custom display name');
-      if (!member.user.avatar) riskIndicators.push('👤 Default avatar');
-      
-      const memberEmbed = new EmbedBuilder()
-        .setTitle(`👤 ${member.displayName}`)
-        .setColor(accountAge < 7 ? '#FF0000' : accountAge < 30 ? '#FFA500' : '#00FF00')
-        .addFields(
-          { name: 'Display Name', value: member.displayName, inline: true },
-          { name: 'Username', value: `@${member.user.username}`, inline: true },
-          { name: 'User ID', value: member.id, inline: true },
-          { name: 'Account Created', value: `${member.user.createdAt.toDateString()}\n(${accountAge} days ago)`, inline: true },
-          { name: 'Joined Server', value: `${member.joinedAt.toDateString()}\n(${joinedAgo > 0 ? joinedAgo + ' days' : joinedHoursAgo + ' hours'} ago)`, inline: true },
-          { name: 'Roles', value: roles, inline: true }
-        )
-        .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 128 }))
-        .setTimestamp();
-      
-      // Add risk indicators if any
-      if (riskIndicators.length > 0) {
-        memberEmbed.addFields({ name: '⚠️ Risk Indicators', value: riskIndicators.join('\n'), inline: false });
-      }
-      
-      // Create action buttons for this user
-      const banButton = new ButtonBuilder()
-        .setCustomId(`ban_${member.id}`)
-        .setLabel('Ban User')
-        .setStyle(ButtonStyle.Danger);
-      
-      const whitelistButton = new ButtonBuilder()
-        .setCustomId(`whitelist_${member.id}_${member.user.username}`)
-        .setLabel('Whitelist User')
-        .setStyle(ButtonStyle.Success);
-      
-      const dismissMemberButton = new ButtonBuilder()
-        .setCustomId(`dismiss_${member.id}_review`)
-        .setLabel('Dismiss')
-        .setStyle(ButtonStyle.Secondary);
-      
-      const actionRow = new ActionRowBuilder().addComponents(banButton, whitelistButton, dismissMemberButton);
-      
-      const memberMessage = await message.channel.send({ 
-        embeds: [memberEmbed], 
-        components: [actionRow] 
-      });
-      
-      // Track for dismiss functionality
-      botResponseMessages.set(memberMessage.id, {
-        triggeredBy: message.author.id,
-        timestamp: Date.now()
-      });
-      
-      // Small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
+    // Get roles
+    const roles = member.roles.cache
+      .filter(role => role.name !== '@everyone')
+      .map(role => role.name)
+      .join(', ') || 'None';
+    
+    // Create risk indicators
+    const riskIndicators = [];
+    if (accountAge < 7) riskIndicators.push('🚨 Account < 7 days old');
+    else if (accountAge < 30) riskIndicators.push('⚠️ Account < 30 days old');
+    if (member.displayName !== member.user.username) riskIndicators.push('📝 Custom display name');
+    if (!member.user.avatar) riskIndicators.push('👤 Default avatar');
+    
+    // Create hyperlinked username
+    const usernameLink = `[@${member.user.username}](https://discord.com/users/${member.id})`;
+    
+    const memberEmbed = new EmbedBuilder()
+      .setTitle(`👤 ${member.displayName}`)
+      .setColor(accountAge < 7 ? '#FF0000' : accountAge < 30 ? '#FFA500' : '#00FF00')
+      .addFields(
+        { name: 'Display Name', value: member.displayName, inline: true },
+        { name: 'Username', value: usernameLink, inline: true },
+        { name: 'User ID', value: member.id, inline: true },
+        { name: 'Account Created', value: `${member.user.createdAt.toDateString()}\n(${accountAge} days ago)`, inline: true },
+        { name: 'Joined Server', value: `${member.joinedAt.toDateString()}\n(${joinedAgo > 0 ? joinedAgo + ' days' : joinedHoursAgo + ' hours'} ago)`, inline: true },
+        { name: 'Roles', value: roles, inline: true }
+      )
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 128 }))
+      .setTimestamp();
+    
+    // Add risk indicators if any
+    if (riskIndicators.length > 0) {
+      memberEmbed.addFields({ name: '⚠️ Risk Indicators', value: riskIndicators.join('\n'), inline: false });
     }
+    
+    // Create action buttons for this user
+    const banButton = new ButtonBuilder()
+      .setCustomId(`ban_${member.id}`)
+      .setLabel('Ban User')
+      .setStyle(ButtonStyle.Danger);
+    
+    const whitelistButton = new ButtonBuilder()
+      .setCustomId(`whitelist_${member.id}_${member.user.username}`)
+      .setLabel('Whitelist User')
+      .setStyle(ButtonStyle.Success);
+    
+    const actionRow = new ActionRowBuilder().addComponents(banButton, whitelistButton);
+    
+    await thread.send({ 
+      embeds: [memberEmbed], 
+      components: [actionRow] 
+    });
+    
+    // Small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 300));
   }
   
-  console.log(`[NEWUSERS] Sent ${newMembers.size} member cards to ${message.author.tag}`);
+  // Send final message with archive button
+  const finalEmbed = new EmbedBuilder()
+    .setTitle('📋 Review Complete')
+    .setColor('#3498DB')
+    .setDescription(`All ${newMembers.size} new user${newMembers.size !== 1 ? 's have' : ' has'} been listed above.\n\nClick the button below to archive this thread when done.`)
+    .setTimestamp();
+  
+  const finalArchiveButton = new ButtonBuilder()
+    .setCustomId(`archive_thread_${thread.id}`)
+    .setLabel('✓ Archive Thread (Done)')
+    .setStyle(ButtonStyle.Success);
+  
+  const finalRow = new ActionRowBuilder().addComponents(finalArchiveButton);
+  
+  await thread.send({ 
+    embeds: [finalEmbed], 
+    components: [finalRow] 
+  });
+  
+  console.log(`[NEWUSERS] Created thread with ${newMembers.size} member cards for ${message.author.tag}`);
 }
 
 function addSuspectedScammer(userId) {
@@ -2057,6 +2094,8 @@ module.exports = {
   quarantineMessage,
   celebratoryGifs,
   apologyGifs,
+  reviewStartGifs,
+  reviewCompleteGifs,
   suspiciousUserThreads,
   setupReportingSystem,
   detectUrlObfuscation,
