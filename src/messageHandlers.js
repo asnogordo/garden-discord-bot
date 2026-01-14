@@ -358,6 +358,11 @@ async function handleMessage(message) {
           await sendThreadedReport(channel, mentionedUser, warningMessageEmbed);
           console.log(`[ADMIN REPORT] Created suspicious activity thread for ${mentionedUser.tag} reported by ${author.tag}`);
           
+          // Track manual report for daily statistics
+          if (global.updateManualReportCount) {
+            global.updateManualReportCount();
+          }
+          
           // React to confirm action was taken
           await message.react('✅').catch(() => {});
           
@@ -367,6 +372,32 @@ async function handleMessage(message) {
         }
       }
       return; // Don't continue processing this message
+    }
+
+    // NEW: Handle !newusers command for admins to review recent joiners
+    if (channel.id === SCAM_CHANNEL_ID && isProtected && content.toLowerCase().startsWith('!newusers')) {
+      console.log(`[NEWUSERS] Admin ${author.tag} requested new users list`);
+      
+      try {
+        // Parse the number of days from the command (default to 7)
+        const parts = content.split(/\s+/);
+        let days = 7;
+        if (parts.length > 1) {
+          const parsedDays = parseInt(parts[1]);
+          if (!isNaN(parsedDays) && parsedDays > 0 && parsedDays <= 30) {
+            days = parsedDays;
+          } else if (parts[1]) {
+            await message.reply(`Invalid number of days. Using default (7). Usage: \`!newusers [1-30]\``);
+          }
+        }
+        
+        await handleNewUsersCommand(message, guild, days);
+        return;
+      } catch (error) {
+        console.error(`[NEWUSERS] Error handling command: ${error.message}`);
+        await message.reply(`❌ Error fetching new users: ${error.message}`);
+        return;
+      }
     }
 
     // Process messages for non-protected users
@@ -834,7 +865,7 @@ async function quarantineMessage(message, channelIds, detectionReason = {}) {
     }
     
     if (global.updateReportData) {
-      global.updateReportData(scamType, author.id, member.displayName || author.username);
+      global.updateReportData(scamType, author.id, member.displayName || author.username, author.username);
     }
 
     console.log(`Quarantined message from ${author.tag} in ${channelIds.size} channel(s).`);
@@ -963,6 +994,148 @@ async function sendThreadedReport(reportChannel, author, warningMessageEmbed) {
     // If all else fails, try to send the report to the main channel
     await reportChannel.send({ embeds: [warningMessageEmbed] });
   }
+}
+
+// Handle !newusers command - shows users who joined in the last N days
+async function handleNewUsersCommand(message, guild, days) {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - days);
+  
+  console.log(`[NEWUSERS] Fetching members who joined after ${cutoffDate.toISOString()}`);
+  
+  // Fetch all members
+  await guild.members.fetch();
+  
+  // Filter members who joined within the specified timeframe
+  const newMembers = guild.members.cache
+    .filter(member => {
+      if (member.user.bot) return false;
+      if (!member.joinedAt) return false;
+      return member.joinedAt >= cutoffDate;
+    })
+    .sort((a, b) => b.joinedAt - a.joinedAt); // Most recent first
+  
+  if (newMembers.size === 0) {
+    await message.reply(`✅ No new members joined in the last ${days} day(s).`);
+    return;
+  }
+  
+  // Create embeds for new users (max 10 per embed to avoid hitting limits)
+  const membersArray = Array.from(newMembers.values());
+  const chunks = [];
+  const MEMBERS_PER_EMBED = 10;
+  
+  for (let i = 0; i < membersArray.length; i += MEMBERS_PER_EMBED) {
+    chunks.push(membersArray.slice(i, i + MEMBERS_PER_EMBED));
+  }
+  
+  // Send summary first
+  const summaryEmbed = new EmbedBuilder()
+    .setTitle(`📋 New Users Review - Last ${days} Day(s)`)
+    .setColor('#3498DB')
+    .setDescription(`Found **${newMembers.size}** new member${newMembers.size !== 1 ? 's' : ''}`)
+    .addFields(
+      { name: 'Cutoff Date', value: cutoffDate.toDateString(), inline: true },
+      { name: 'Total New Users', value: newMembers.size.toString(), inline: true }
+    )
+    .setFooter({ text: 'Use the buttons below to take action on suspicious users' })
+    .setTimestamp();
+  
+  // Add dismiss button
+  const dismissButton = new ButtonBuilder()
+    .setCustomId(`dismiss_${message.id}`)
+    .setLabel('Dismiss All')
+    .setStyle(ButtonStyle.Secondary);
+  
+  const summaryRow = new ActionRowBuilder().addComponents(dismissButton);
+  
+  const summaryMessage = await message.reply({ 
+    embeds: [summaryEmbed], 
+    components: [summaryRow] 
+  });
+  
+  // Track for dismiss functionality
+  botResponseMessages.set(summaryMessage.id, {
+    triggeredBy: message.author.id,
+    timestamp: Date.now()
+  });
+  
+  // Send detailed embeds for each chunk
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+    const chunk = chunks[chunkIndex];
+    
+    for (const member of chunk) {
+      const accountAge = Math.floor((Date.now() - member.user.createdAt) / (1000 * 60 * 60 * 24));
+      const joinedAgo = Math.floor((Date.now() - member.joinedAt) / (1000 * 60 * 60 * 24));
+      const joinedHoursAgo = Math.floor((Date.now() - member.joinedAt) / (1000 * 60 * 60));
+      
+      // Get roles
+      const roles = member.roles.cache
+        .filter(role => role.name !== '@everyone')
+        .map(role => role.name)
+        .join(', ') || 'None';
+      
+      // Create risk indicators
+      const riskIndicators = [];
+      if (accountAge < 7) riskIndicators.push('🚨 Account < 7 days old');
+      if (accountAge < 30) riskIndicators.push('⚠️ Account < 30 days old');
+      if (member.displayName !== member.user.username) riskIndicators.push('📝 Custom display name');
+      if (!member.user.avatar) riskIndicators.push('👤 Default avatar');
+      
+      const memberEmbed = new EmbedBuilder()
+        .setTitle(`👤 ${member.displayName}`)
+        .setColor(accountAge < 7 ? '#FF0000' : accountAge < 30 ? '#FFA500' : '#00FF00')
+        .addFields(
+          { name: 'Display Name', value: member.displayName, inline: true },
+          { name: 'Username', value: `@${member.user.username}`, inline: true },
+          { name: 'User ID', value: member.id, inline: true },
+          { name: 'Account Created', value: `${member.user.createdAt.toDateString()}\n(${accountAge} days ago)`, inline: true },
+          { name: 'Joined Server', value: `${member.joinedAt.toDateString()}\n(${joinedAgo > 0 ? joinedAgo + ' days' : joinedHoursAgo + ' hours'} ago)`, inline: true },
+          { name: 'Roles', value: roles, inline: true }
+        )
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 128 }))
+        .setTimestamp();
+      
+      // Add risk indicators if any
+      if (riskIndicators.length > 0) {
+        memberEmbed.addFields({ name: '⚠️ Risk Indicators', value: riskIndicators.join('\n'), inline: false });
+      }
+      
+      // Create action buttons for this user
+      const banButton = new ButtonBuilder()
+        .setCustomId(`ban_${member.id}`)
+        .setLabel('Ban User')
+        .setStyle(ButtonStyle.Danger);
+      
+      const whitelistButton = new ButtonBuilder()
+        .setCustomId(`whitelist_${member.id}_${member.user.username}`)
+        .setLabel('Whitelist User')
+        .setStyle(ButtonStyle.Success);
+      
+      const dismissMemberButton = new ButtonBuilder()
+        .setCustomId(`dismiss_${member.id}_review`)
+        .setLabel('Dismiss')
+        .setStyle(ButtonStyle.Secondary);
+      
+      const actionRow = new ActionRowBuilder().addComponents(banButton, whitelistButton, dismissMemberButton);
+      
+      const memberMessage = await message.channel.send({ 
+        embeds: [memberEmbed], 
+        components: [actionRow] 
+      });
+      
+      // Track for dismiss functionality
+      botResponseMessages.set(memberMessage.id, {
+        triggeredBy: message.author.id,
+        timestamp: Date.now()
+      });
+      
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+  
+  console.log(`[NEWUSERS] Sent ${newMembers.size} member cards to ${message.author.tag}`);
 }
 
 function addSuspectedScammer(userId) {
@@ -1561,7 +1734,7 @@ async function handleUnauthorizedUrl(message) {
       else if (urlObfuscation.isObfuscated) scamType = 'encodedUrls';
       
       const displayName = message.member?.displayName || message.author.username;
-      global.updateReportData(scamType, message.author.id, displayName);
+      global.updateReportData(scamType, message.author.id, displayName, message.author.username);
     }
     
     return true;
@@ -1605,7 +1778,9 @@ function setupReportingSystem(client) {
       encodedUrls: 0,
       otherScams: 0
     },
-    topScammers: new Map()
+    manualReports: 0,
+    topScammers: new Map(), // Map of userId -> { displayName, username, count }
+    adminBans: new Map() // Map of adminId -> { displayName, avatarURL, count }
   };
 
   console.log(`📊 Security reporting system initialized`);
@@ -1623,7 +1798,9 @@ function setupReportingSystem(client) {
       encodedUrls: 0,
       otherScams: 0
     };
+    reportData.manualReports = 0;
     reportData.topScammers.clear();
+    reportData.adminBans.clear();
     console.log(`📊 Report data reset at ${new Date().toISOString()}`);
   }
 
@@ -1644,7 +1821,8 @@ function setupReportingSystem(client) {
         : `${config.REPORT_INTERVAL_MINUTES} minutes`;
 
       // Handle no interceptions case
-      if (reportData.interceptCount === 0) {
+      const totalActivity = reportData.interceptCount + reportData.manualReports;
+      if (totalActivity === 0 && reportData.adminBans.size === 0) {
         await reportChannel.send({
           embeds: [
             new EmbedBuilder()
@@ -1684,31 +1862,88 @@ function setupReportingSystem(client) {
             name: 'Other Scams', 
             value: reportData.scamTypes.otherScams.toString(), 
             inline: true 
+          },
+          {
+            name: 'Manual Reports',
+            value: reportData.manualReports.toString(),
+            inline: true
           }
         )
         .setFooter({ text: `Garden Security Bot - Report Interval: ${intervalDescription}` })
         .setTimestamp();
 
-      // Add top offenders if any exist
+      // Add top offenders if any exist - now with display names and hyperlinked usernames
       if (reportData.topScammers.size > 0) {
         const topOffenders = Array.from(reportData.topScammers.entries())
-          .sort((a, b) => b[1] - a[1])
+          .sort((a, b) => b[1].count - a[1].count)
           .slice(0, 5)
-          .map(([userId, count], index) => `${index + 1}. <@${userId}>: ${count} violation${count !== 1 ? 's' : ''}`)
+          .map(([userId, data], index) => {
+            const displayName = data.displayName || 'Unknown';
+            const usernameDisplay = data.username 
+              ? `[@${data.username}](https://discord.com/users/${userId})`
+              : `[${userId.slice(0, 8)}...](https://discord.com/users/${userId})`;
+            return `${index + 1}. **${displayName}** (${usernameDisplay}): ${data.count} violation${data.count !== 1 ? 's' : ''}`;
+          })
           .join('\n');
 
         if (topOffenders) {
-          embed.addFields({ name: 'Top Offenders', value: topOffenders });
+          embed.addFields({ name: '🚨 Top Offenders', value: topOffenders });
         }
       } else {
         embed.addFields({ 
-          name: 'Top Offenders', 
+          name: '🚨 Top Offenders', 
           value: 'No repeat offenders.' 
         });
       }
 
       await reportChannel.send({ embeds: [embed] });
-      console.log(`📊 Sent security report at ${formattedTime} (${reportData.interceptCount} interceptions)`);
+
+      // Send admin ban leaderboard if there were any bans
+      if (reportData.adminBans.size > 0) {
+        const sortedAdmins = Array.from(reportData.adminBans.entries())
+          .sort((a, b) => b[1].count - a[1].count);
+        
+        const topAdmin = sortedAdmins[0];
+        const [topAdminId, topAdminData] = topAdmin;
+
+        const adminEmbed = new EmbedBuilder()
+          .setTitle(`🏆 Ban Leaderboard - ${formattedDate}`)
+          .setColor('#FFD700')
+          .setDescription(`Top moderators keeping the server safe!`);
+
+        // Add thumbnail of top admin if available
+        if (topAdminData.avatarURL) {
+          adminEmbed.setThumbnail(topAdminData.avatarURL);
+        }
+
+        const leaderboardText = sortedAdmins
+          .slice(0, 5)
+          .map(([adminId, data], index) => {
+            const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🏅';
+            return `${medal} **${data.displayName}**: ${data.count} ban${data.count !== 1 ? 's' : ''}`;
+          })
+          .join('\n');
+
+        adminEmbed.addFields({ name: 'Top Defenders', value: leaderboardText });
+        
+        // Add congratulations message for top banner
+        const congratsMessages = [
+          `🎉 Congrats to **${topAdminData.displayName}** for keeping our community safe!`,
+          `👏 Amazing work **${topAdminData.displayName}**! Server guardian of the day!`,
+          `⚔️ **${topAdminData.displayName}** is on fire! Thanks for protecting the garden!`,
+          `🛡️ **${topAdminData.displayName}** leading the charge against scammers!`,
+          `🌟 Shoutout to **${topAdminData.displayName}** for their vigilance!`
+        ];
+        const randomCongrats = congratsMessages[Math.floor(Math.random() * congratsMessages.length)];
+        
+        adminEmbed.addFields({ name: '🎊 MVP', value: randomCongrats });
+        adminEmbed.setFooter({ text: `Garden Security Bot - Report Interval: ${intervalDescription}` });
+        adminEmbed.setTimestamp();
+
+        await reportChannel.send({ embeds: [adminEmbed] });
+      }
+
+      console.log(`📊 Sent security report at ${formattedTime} (${reportData.interceptCount} interceptions, ${reportData.manualReports} manual reports, ${reportData.adminBans.size} admins with bans)`);
       return true;
     } catch (error) {
       console.error('📊 Error sending security report:', error);
@@ -1717,7 +1952,7 @@ function setupReportingSystem(client) {
   }
 
   // Update stats function - expose this globally
-  global.updateReportData = function(type, userId) {
+  global.updateReportData = function(type, userId, displayName = null, username = null) {
     reportData.interceptCount++;
     
     // Update scam type counters
@@ -1727,13 +1962,48 @@ function setupReportingSystem(client) {
       reportData.scamTypes.otherScams++;
     }
     
-    // Track user violations if userId is provided
+    // Track user violations if userId is provided - now with displayName and username
     if (userId) {
-      const currentCount = reportData.topScammers.get(userId) || 0;
-      reportData.topScammers.set(userId, currentCount + 1);
+      const existing = reportData.topScammers.get(userId);
+      if (existing) {
+        existing.count++;
+        // Update display name and username if we have better ones
+        if (displayName) existing.displayName = displayName;
+        if (username) existing.username = username;
+      } else {
+        reportData.topScammers.set(userId, {
+          displayName: displayName || `User ${userId.slice(0, 8)}`,
+          username: username || null,
+          count: 1
+        });
+      }
     }
     
-    console.log(`📊 Report data updated: ${type} by user ${userId || 'unknown'}, total count: ${reportData.interceptCount}`);
+    console.log(`📊 Report data updated: ${type} by user ${displayName || userId || 'unknown'}, total count: ${reportData.interceptCount}`);
+  };
+
+  // Track manual reports - expose globally
+  global.updateManualReportCount = function() {
+    reportData.manualReports++;
+    console.log(`📊 Manual report tracked, total: ${reportData.manualReports}`);
+  };
+
+  // Track admin bans - expose globally
+  global.updateAdminBanCount = function(adminId, displayName, avatarURL = null) {
+    const existing = reportData.adminBans.get(adminId);
+    if (existing) {
+      existing.count++;
+      // Update display name and avatar if we have better ones
+      if (displayName) existing.displayName = displayName;
+      if (avatarURL) existing.avatarURL = avatarURL;
+    } else {
+      reportData.adminBans.set(adminId, {
+        displayName: displayName || `Admin ${adminId.slice(0, 8)}`,
+        avatarURL: avatarURL,
+        count: 1
+      });
+    }
+    console.log(`📊 Admin ban tracked for ${displayName || adminId}, total bans: ${existing ? existing.count : 1}`);
   };
 
   // Set up the interval to check and send reports
