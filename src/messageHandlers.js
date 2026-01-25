@@ -1943,10 +1943,16 @@ function setupReportingSystem(client) {
         const topAdmin = sortedAdmins[0];
         const [topAdminId, topAdminData] = topAdmin;
 
+        const leaderboardPeriod = config.REPORT_INTERVAL_MINUTES >= 10080 
+          ? 'Weekly' 
+          : config.REPORT_INTERVAL_MINUTES >= 1440 
+            ? 'Daily' 
+            : 'Period';
+
         const adminEmbed = new EmbedBuilder()
-          .setTitle(`🏆 Ban Leaderboard - ${formattedDate}`)
+          .setTitle(`🏆 ${leaderboardPeriod} Ban Leaderboard - ${formattedDate}`)
           .setColor('#FFD700')
-          .setDescription(`Top moderators keeping the server safe!`);
+          .setDescription(`Top moderators keeping the server safe this ${leaderboardPeriod.toLowerCase()} period!`);
 
         // Add thumbnail of top admin if available
         if (topAdminData.avatarURL) {
@@ -1963,10 +1969,17 @@ function setupReportingSystem(client) {
 
         adminEmbed.addFields({ name: 'Top Defenders', value: leaderboardText });
         
+        // Determine period description for congratulations messages
+        const periodDescription = config.REPORT_INTERVAL_MINUTES >= 10080 
+          ? 'of the week' 
+          : config.REPORT_INTERVAL_MINUTES >= 1440 
+            ? 'of the day' 
+            : 'of this period';
+        
         // Add congratulations message for top banner
         const congratsMessages = [
           `🎉 Congrats to **${topAdminData.displayName}** for keeping our community safe!`,
-          `👏 Amazing work **${topAdminData.displayName}**! Server guardian of the day!`,
+          `👏 Amazing work **${topAdminData.displayName}**! Server guardian ${periodDescription}!`,
           `⚔️ **${topAdminData.displayName}** is on fire! Thanks for protecting the garden!`,
           `🛡️ **${topAdminData.displayName}** leading the charge against scammers!`,
           `🌟 Shoutout to **${topAdminData.displayName}** for their vigilance!`
