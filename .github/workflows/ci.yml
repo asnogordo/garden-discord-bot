@@ -32,61 +32,399 @@ jobs:
     if: github.ref == 'refs/heads/development'
     runs-on: ubuntu-latest
     steps:
+    - name: Verify secrets exist
+      run: |
+        echo "=== Checking required secrets ==="
+        MISSING_SECRETS=0
+        
+        if [ -z "$SSH_KEY" ]; then
+          echo "❌ ERROR: SSH_KEY is empty or not set!"
+          MISSING_SECRETS=1
+        else
+          echo "✅ SSH_KEY is set (length: ${#SSH_KEY} chars)"
+        fi
+        
+        if [ -z "$DEV_HOST" ]; then
+          echo "❌ ERROR: DEV_HOST is empty or not set!"
+          MISSING_SECRETS=1
+        else
+          echo "✅ DEV_HOST is set (length: ${#DEV_HOST} chars)"
+        fi
+        
+        if [ -z "$USERNAME" ]; then
+          echo "❌ ERROR: USERNAME is empty or not set!"
+          MISSING_SECRETS=1
+        else
+          echo "✅ USERNAME is set (length: ${#USERNAME} chars)"
+        fi
+        
+        if [ $MISSING_SECRETS -eq 1 ]; then
+          echo ""
+          echo "💡 Go to: Repository Settings → Secrets and variables → Actions"
+          echo "   Make sure all secrets are defined with correct values."
+          exit 1
+        fi
+        
+        echo ""
+        echo "=== All required secrets are present ==="
+      env:
+        SSH_KEY: ${{ secrets.SSH_KEY }}
+        DEV_HOST: ${{ secrets.DEV_HOST }}
+        USERNAME: ${{ secrets.USERNAME }}
+
+    - name: Test network connectivity to DEV host
+      run: |
+        echo "=== Network Connectivity Tests for DEV ==="
+        echo "Target: $DEV_HOST"
+        echo ""
+        
+        echo "--- DNS Lookup ---"
+        if nslookup "$DEV_HOST" 2>&1; then
+          echo "✅ DNS resolution successful"
+        else
+          echo "⚠️  DNS lookup failed (might be an IP address, which is fine)"
+        fi
+        echo ""
+        
+        echo "--- Ping Test (3 packets) ---"
+        if ping -c 3 -W 5 "$DEV_HOST" 2>&1; then
+          echo "✅ Host responds to ping"
+        else
+          echo "⚠️  Host does not respond to ping (ICMP might be blocked, continuing...)"
+        fi
+        echo ""
+        
+        echo "--- TCP Port 22 (SSH) Test ---"
+        if nc -zv -w 10 "$DEV_HOST" 22 2>&1; then
+          echo "✅ Port 22 is open and reachable"
+        else
+          echo "❌ ERROR: Cannot reach port 22 on $DEV_HOST"
+          echo ""
+          echo "💡 Possible causes:"
+          echo "   1. OCI Security List does not allow inbound SSH (port 22) from 0.0.0.0/0"
+          echo "   2. VM firewall (iptables/firewalld) is blocking connections"
+          echo "   3. SSH service is not running on the VM"
+          echo "   4. DEV_HOST secret contains wrong IP/hostname"
+          echo ""
+          echo "💡 To fix in OCI Console:"
+          echo "   Networking → Virtual Cloud Networks → [Your VCN] → Security Lists"
+          echo "   Add Ingress Rule: Source 0.0.0.0/0, TCP, Port 22"
+          exit 1
+        fi
+        echo ""
+        
+        echo "=== Network connectivity OK ==="
+      env:
+        DEV_HOST: ${{ secrets.DEV_HOST }}
+
     - name: Setup SSH
       uses: webfactory/ssh-agent@v0.8.0
       with:
         ssh-private-key: ${{ secrets.SSH_KEY }}
 
     - name: Add known hosts
-      run: ssh-keyscan -H ${{ secrets.DEV_HOST }} >> ~/.ssh/known_hosts
+      run: |
+        echo "=== Adding DEV host to known_hosts ==="
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        
+        echo "Running ssh-keyscan..."
+        if ssh-keyscan -H "$DEV_HOST" >> ~/.ssh/known_hosts 2>&1; then
+          echo "✅ Successfully added host key"
+          echo "Known hosts file contents:"
+          cat ~/.ssh/known_hosts
+        else
+          echo "❌ ERROR: ssh-keyscan failed"
+          echo ""
+          echo "💡 This usually means:"
+          echo "   - The host is not reachable on port 22"
+          echo "   - SSH server is not responding"
+          exit 1
+        fi
+      env:
+        DEV_HOST: ${{ secrets.DEV_HOST }}
+
+    - name: Test SSH authentication
+      run: |
+        echo "=== Testing SSH Authentication ==="
+        echo "Attempting to connect as $USERNAME@$DEV_HOST..."
+        
+        if ssh -o BatchMode=yes -o ConnectTimeout=30 "$USERNAME@$DEV_HOST" "echo '✅ SSH authentication successful! Connected as:' && whoami && echo 'Host:' && hostname"; then
+          echo ""
+          echo "=== SSH connection test passed ==="
+        else
+          echo "❌ ERROR: SSH authentication failed"
+          echo ""
+          echo "💡 Possible causes:"
+          echo "   1. SSH_KEY doesn't match the public key in ~/.ssh/authorized_keys on the VM"
+          echo "   2. USERNAME is incorrect"
+          echo "   3. User doesn't exist on the VM"
+          echo ""
+          echo "💡 To fix:"
+          echo "   1. SSH into your VM manually"
+          echo "   2. Check ~/.ssh/authorized_keys contains your public key"
+          echo "   3. Verify the username matches"
+          exit 1
+        fi
+      env:
+        DEV_HOST: ${{ secrets.DEV_HOST }}
+        USERNAME: ${{ secrets.USERNAME }}
 
     - name: Deploy to Dev
       run: |
-        ssh ${{ secrets.USERNAME }}@${{ secrets.DEV_HOST }} << EOF
-          # Pull latest code in the dev directory
-          cd ~/garden-discord-bot-dev
+        echo "=== Starting Deployment to DEV ==="
+        ssh "$USERNAME@$DEV_HOST" << 'EOF'
+          set -e
+          echo "Connected to $(hostname)"
+          echo ""
+          
+          echo "--- Navigating to project directory ---"
+          cd ~/garden-discord-bot-dev || { echo "❌ Directory ~/garden-discord-bot-dev not found!"; exit 1; }
+          echo "✅ In directory: $(pwd)"
+          echo ""
+          
+          echo "--- Pulling latest code ---"
           git checkout development
           git pull origin development
+          echo "✅ Code updated"
+          echo ""
           
-          # Using docker compose plugin syntax (no hyphen)
-          docker compose -f docker-compose.yml -f docker-compose.dev.yml down
+          echo "--- Stopping existing containers ---"
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml down || true
+          echo "✅ Containers stopped"
+          echo ""
+          
+          echo "--- Building containers ---"
           docker compose -f docker-compose.yml -f docker-compose.dev.yml build
-          docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+          echo "✅ Build complete"
+          echo ""
           
-          # Check logs for successful startup
+          echo "--- Starting containers ---"
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+          echo "✅ Containers started"
+          echo ""
+          
+          echo "--- Waiting for startup (10s) ---"
           sleep 10
-          docker compose logs --tail=20
-          docker logs garden-bot-dev 2>&1 | grep -q "Logged in as" && echo "Bot successfully started" || echo "Warning: Bot might not have started properly"
+          
+          echo "--- Container status ---"
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml ps
+          echo ""
+          
+          echo "--- Recent logs ---"
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml logs --tail=30
+          echo ""
+          
+          if docker logs garden-bot-dev 2>&1 | grep -q "Logged in as"; then
+            echo "✅ Bot successfully started!"
+          else
+            echo "⚠️  Warning: Could not confirm bot startup. Check logs above."
+          fi
         EOF
+        
+        echo ""
+        echo "=== DEV Deployment Complete ==="
+      env:
+        DEV_HOST: ${{ secrets.DEV_HOST }}
+        USERNAME: ${{ secrets.USERNAME }}
 
   deploy-prod:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+    - name: Verify secrets exist
+      run: |
+        echo "=== Checking required secrets ==="
+        MISSING_SECRETS=0
+        
+        if [ -z "$SSH_KEY" ]; then
+          echo "❌ ERROR: SSH_KEY is empty or not set!"
+          MISSING_SECRETS=1
+        else
+          echo "✅ SSH_KEY is set (length: ${#SSH_KEY} chars)"
+        fi
+        
+        if [ -z "$PROD_HOST" ]; then
+          echo "❌ ERROR: PROD_HOST is empty or not set!"
+          MISSING_SECRETS=1
+        else
+          echo "✅ PROD_HOST is set (length: ${#PROD_HOST} chars)"
+        fi
+        
+        if [ -z "$USERNAME" ]; then
+          echo "❌ ERROR: USERNAME is empty or not set!"
+          MISSING_SECRETS=1
+        else
+          echo "✅ USERNAME is set (length: ${#USERNAME} chars)"
+        fi
+        
+        if [ $MISSING_SECRETS -eq 1 ]; then
+          echo ""
+          echo "💡 Go to: Repository Settings → Secrets and variables → Actions"
+          echo "   Make sure all secrets are defined with correct values."
+          exit 1
+        fi
+        
+        echo ""
+        echo "=== All required secrets are present ==="
+      env:
+        SSH_KEY: ${{ secrets.SSH_KEY }}
+        PROD_HOST: ${{ secrets.PROD_HOST }}
+        USERNAME: ${{ secrets.USERNAME }}
+
+    - name: Test network connectivity to PROD host
+      run: |
+        echo "=== Network Connectivity Tests for PROD ==="
+        echo "Target: $PROD_HOST"
+        echo ""
+        
+        echo "--- DNS Lookup ---"
+        if nslookup "$PROD_HOST" 2>&1; then
+          echo "✅ DNS resolution successful"
+        else
+          echo "⚠️  DNS lookup failed (might be an IP address, which is fine)"
+        fi
+        echo ""
+        
+        echo "--- Ping Test (3 packets) ---"
+        if ping -c 3 -W 5 "$PROD_HOST" 2>&1; then
+          echo "✅ Host responds to ping"
+        else
+          echo "⚠️  Host does not respond to ping (ICMP might be blocked, continuing...)"
+        fi
+        echo ""
+        
+        echo "--- TCP Port 22 (SSH) Test ---"
+        if nc -zv -w 10 "$PROD_HOST" 22 2>&1; then
+          echo "✅ Port 22 is open and reachable"
+        else
+          echo "❌ ERROR: Cannot reach port 22 on $PROD_HOST"
+          echo ""
+          echo "💡 Possible causes:"
+          echo "   1. OCI Security List does not allow inbound SSH (port 22) from 0.0.0.0/0"
+          echo "   2. VM firewall (iptables/firewalld) is blocking connections"
+          echo "   3. SSH service is not running on the VM"
+          echo "   4. PROD_HOST secret contains wrong IP/hostname"
+          echo ""
+          echo "💡 To fix in OCI Console:"
+          echo "   Networking → Virtual Cloud Networks → [Your VCN] → Security Lists"
+          echo "   Add Ingress Rule: Source 0.0.0.0/0, TCP, Port 22"
+          exit 1
+        fi
+        echo ""
+        
+        echo "=== Network connectivity OK ==="
+      env:
+        PROD_HOST: ${{ secrets.PROD_HOST }}
+
     - name: Setup SSH
       uses: webfactory/ssh-agent@v0.8.0
       with:
         ssh-private-key: ${{ secrets.SSH_KEY }}
 
     - name: Add known hosts
-      run: ssh-keyscan -H ${{ secrets.PROD_HOST }} >> ~/.ssh/known_hosts
+      run: |
+        echo "=== Adding PROD host to known_hosts ==="
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        
+        echo "Running ssh-keyscan..."
+        if ssh-keyscan -H "$PROD_HOST" >> ~/.ssh/known_hosts 2>&1; then
+          echo "✅ Successfully added host key"
+          echo "Known hosts file contents:"
+          cat ~/.ssh/known_hosts
+        else
+          echo "❌ ERROR: ssh-keyscan failed"
+          echo ""
+          echo "💡 This usually means:"
+          echo "   - The host is not reachable on port 22"
+          echo "   - SSH server is not responding"
+          exit 1
+        fi
+      env:
+        PROD_HOST: ${{ secrets.PROD_HOST }}
+
+    - name: Test SSH authentication
+      run: |
+        echo "=== Testing SSH Authentication ==="
+        echo "Attempting to connect as $USERNAME@$PROD_HOST..."
+        
+        if ssh -o BatchMode=yes -o ConnectTimeout=30 "$USERNAME@$PROD_HOST" "echo '✅ SSH authentication successful! Connected as:' && whoami && echo 'Host:' && hostname"; then
+          echo ""
+          echo "=== SSH connection test passed ==="
+        else
+          echo "❌ ERROR: SSH authentication failed"
+          echo ""
+          echo "💡 Possible causes:"
+          echo "   1. SSH_KEY doesn't match the public key in ~/.ssh/authorized_keys on the VM"
+          echo "   2. USERNAME is incorrect"
+          echo "   3. User doesn't exist on the VM"
+          echo ""
+          echo "💡 To fix:"
+          echo "   1. SSH into your VM manually"
+          echo "   2. Check ~/.ssh/authorized_keys contains your public key"
+          echo "   3. Verify the username matches"
+          exit 1
+        fi
+      env:
+        PROD_HOST: ${{ secrets.PROD_HOST }}
+        USERNAME: ${{ secrets.USERNAME }}
 
     - name: Deploy to Prod
       run: |
-        ssh ${{ secrets.USERNAME }}@${{ secrets.PROD_HOST }} << EOF
-          # Pull latest code in the prod directory
-          cd ~/garden-discord-bot-prod
+        echo "=== Starting Deployment to PROD ==="
+        ssh "$USERNAME@$PROD_HOST" << 'EOF'
+          set -e
+          echo "Connected to $(hostname)"
+          echo ""
+          
+          echo "--- Navigating to project directory ---"
+          cd ~/garden-discord-bot-prod || { echo "❌ Directory ~/garden-discord-bot-prod not found!"; exit 1; }
+          echo "✅ In directory: $(pwd)"
+          echo ""
+          
+          echo "--- Pulling latest code ---"
           git checkout main
           git pull origin main
+          echo "✅ Code updated"
+          echo ""
           
-          # Using docker compose plugin syntax (no hyphen)
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+          echo "--- Stopping existing containers ---"
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml down || true
+          echo "✅ Containers stopped"
+          echo ""
+          
+          echo "--- Building containers ---"
           docker compose -f docker-compose.yml -f docker-compose.prod.yml build
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+          echo "✅ Build complete"
+          echo ""
           
-          # Check logs for successful startup
+          echo "--- Starting containers ---"
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+          echo "✅ Containers started"
+          echo ""
+          
+          echo "--- Waiting for startup (10s) ---"
           sleep 10
-          docker compose logs --tail=20
-          docker logs garden-bot-prod 2>&1 | grep -q "Logged in as" && echo "Bot successfully started" || echo "Warning: Bot might not have started properly"
+          
+          echo "--- Container status ---"
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+          echo ""
+          
+          echo "--- Recent logs ---"
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=30
+          echo ""
+          
+          if docker logs garden-bot-prod 2>&1 | grep -q "Logged in as"; then
+            echo "✅ Bot successfully started!"
+          else
+            echo "⚠️  Warning: Could not confirm bot startup. Check logs above."
+          fi
         EOF
+        
+        echo ""
+        echo "=== PROD Deployment Complete ==="
+      env:
+        PROD_HOST: ${{ secrets.PROD_HOST }}
+        USERNAME: ${{ secrets.USERNAME }}
