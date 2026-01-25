@@ -131,8 +131,6 @@ jobs:
         echo "Running ssh-keyscan..."
         if ssh-keyscan -H "$DEV_HOST" >> ~/.ssh/known_hosts 2>&1; then
           echo "✅ Successfully added host key"
-          echo "Known hosts file contents:"
-          cat ~/.ssh/known_hosts
         else
           echo "❌ ERROR: ssh-keyscan failed"
           echo ""
@@ -149,7 +147,7 @@ jobs:
         echo "=== Testing SSH Authentication ==="
         echo "Attempting to connect as $USERNAME@$DEV_HOST..."
         
-        if ssh -o BatchMode=yes -o ConnectTimeout=30 "$USERNAME@$DEV_HOST" "echo '✅ SSH authentication successful! Connected as:' && whoami && echo 'Host:' && hostname"; then
+        if ssh -o BatchMode=yes -o ConnectTimeout=30 "$USERNAME@$DEV_HOST" "echo '✅ SSH authentication successful!' && whoami && hostname"; then
           echo ""
           echo "=== SSH connection test passed ==="
         else
@@ -173,56 +171,7 @@ jobs:
     - name: Deploy to Dev
       run: |
         echo "=== Starting Deployment to DEV ==="
-        ssh "$USERNAME@$DEV_HOST" << 'EOF'
-          set -e
-          echo "Connected to $(hostname)"
-          echo ""
-          
-          echo "--- Navigating to project directory ---"
-          cd ~/garden-discord-bot-dev || { echo "❌ Directory ~/garden-discord-bot-dev not found!"; exit 1; }
-          echo "✅ In directory: $(pwd)"
-          echo ""
-          
-          echo "--- Pulling latest code ---"
-          git checkout development
-          git pull origin development
-          echo "✅ Code updated"
-          echo ""
-          
-          echo "--- Stopping existing containers ---"
-          docker compose -f docker-compose.yml -f docker-compose.dev.yml down || true
-          echo "✅ Containers stopped"
-          echo ""
-          
-          echo "--- Building containers ---"
-          docker compose -f docker-compose.yml -f docker-compose.dev.yml build
-          echo "✅ Build complete"
-          echo ""
-          
-          echo "--- Starting containers ---"
-          docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-          echo "✅ Containers started"
-          echo ""
-          
-          echo "--- Waiting for startup (10s) ---"
-          sleep 10
-          
-          echo "--- Container status ---"
-          docker compose -f docker-compose.yml -f docker-compose.dev.yml ps
-          echo ""
-          
-          echo "--- Recent logs ---"
-          docker compose -f docker-compose.yml -f docker-compose.dev.yml logs --tail=30
-          echo ""
-          
-          if docker logs garden-bot-dev 2>&1 | grep -q "Logged in as"; then
-            echo "✅ Bot successfully started!"
-          else
-            echo "⚠️  Warning: Could not confirm bot startup. Check logs above."
-          fi
-        EOF
-        
-        echo ""
+        ssh "$USERNAME@$DEV_HOST" "~/bin/deploy.sh dev"
         echo "=== DEV Deployment Complete ==="
       env:
         DEV_HOST: ${{ secrets.DEV_HOST }}
@@ -332,8 +281,6 @@ jobs:
         echo "Running ssh-keyscan..."
         if ssh-keyscan -H "$PROD_HOST" >> ~/.ssh/known_hosts 2>&1; then
           echo "✅ Successfully added host key"
-          echo "Known hosts file contents:"
-          cat ~/.ssh/known_hosts
         else
           echo "❌ ERROR: ssh-keyscan failed"
           echo ""
@@ -350,7 +297,7 @@ jobs:
         echo "=== Testing SSH Authentication ==="
         echo "Attempting to connect as $USERNAME@$PROD_HOST..."
         
-        if ssh -o BatchMode=yes -o ConnectTimeout=30 "$USERNAME@$PROD_HOST" "echo '✅ SSH authentication successful! Connected as:' && whoami && echo 'Host:' && hostname"; then
+        if ssh -o BatchMode=yes -o ConnectTimeout=30 "$USERNAME@$PROD_HOST" "echo '✅ SSH authentication successful!' && whoami && hostname"; then
           echo ""
           echo "=== SSH connection test passed ==="
         else
@@ -374,56 +321,7 @@ jobs:
     - name: Deploy to Prod
       run: |
         echo "=== Starting Deployment to PROD ==="
-        ssh "$USERNAME@$PROD_HOST" << 'EOF'
-          set -e
-          echo "Connected to $(hostname)"
-          echo ""
-          
-          echo "--- Navigating to project directory ---"
-          cd ~/garden-discord-bot-prod || { echo "❌ Directory ~/garden-discord-bot-prod not found!"; exit 1; }
-          echo "✅ In directory: $(pwd)"
-          echo ""
-          
-          echo "--- Pulling latest code ---"
-          git checkout main
-          git pull origin main
-          echo "✅ Code updated"
-          echo ""
-          
-          echo "--- Stopping existing containers ---"
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml down || true
-          echo "✅ Containers stopped"
-          echo ""
-          
-          echo "--- Building containers ---"
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml build
-          echo "✅ Build complete"
-          echo ""
-          
-          echo "--- Starting containers ---"
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-          echo "✅ Containers started"
-          echo ""
-          
-          echo "--- Waiting for startup (10s) ---"
-          sleep 10
-          
-          echo "--- Container status ---"
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
-          echo ""
-          
-          echo "--- Recent logs ---"
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=30
-          echo ""
-          
-          if docker logs garden-bot-prod 2>&1 | grep -q "Logged in as"; then
-            echo "✅ Bot successfully started!"
-          else
-            echo "⚠️  Warning: Could not confirm bot startup. Check logs above."
-          fi
-        EOF
-        
-        echo ""
+        ssh "$USERNAME@$PROD_HOST" "~/bin/deploy.sh prod"
         echo "=== PROD Deployment Complete ==="
       env:
         PROD_HOST: ${{ secrets.PROD_HOST }}
