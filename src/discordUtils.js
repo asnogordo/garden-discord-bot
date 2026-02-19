@@ -8,7 +8,11 @@ async function sendAlert(client, embeddedMessage, channelId) {
     return;
   }
   
-  const channel = client.channels.cache.get(channelId);
+  let channel = client.channels.cache.get(channelId);
+  if (!channel) {
+    channel = await client.channels.fetch(channelId).catch(() => null);
+  }
+
   if (!channel) {
     console.error(`Channel with ID ${channelId} not found.`);
     return;

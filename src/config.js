@@ -1,6 +1,19 @@
 // config.js - reads the .env and preps config variables
 require('dotenv').config();
 
+const baseRoleIds = Array.from(
+  new Set(
+    (process.env.BASE_ROLE_IDS || '')
+      .split(',')
+      .map(roleId => roleId.trim())
+      .filter(Boolean)
+  )
+);
+
+if (baseRoleIds.length === 0) {
+  throw new Error('BASE_ROLE_IDS must be set (comma-separated regular-user role IDs).');
+}
+
 module.exports = {
   // Discord Bot Configuration
   BOT_TOKEN: process.env.BOT_TOKEN,
@@ -18,7 +31,7 @@ module.exports = {
     // Add more channel IDs as needed
   ].filter(Boolean), // This removes any undefined or null values
 
-  // roles that can't be banned by sus
+  // roles protected from moderation actions
   PROTECTED_ROLE_IDS: (process.env.PROTECTED_ROLE_IDS || '').split(',').filter(Boolean),
 
   // Excluded Channel Name Patterns from ENV
@@ -27,8 +40,8 @@ module.exports = {
   .map(pattern => pattern.trim())
   .filter(Boolean),
   
-  // Role IDs
-  BASE_ROLE_ID: process.env.BASE_ROLE_ID,
+  // Regular user roles that count as "base roles only" in scam detection
+  BASE_ROLE_IDS: baseRoleIds,
 
   // Blockchain Configuration - Etherscan v2 API
   ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY, // Single API key for all chains

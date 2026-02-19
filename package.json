@@ -21,7 +21,7 @@
     "npm": "*"
   },
   "scripts": {
-    "test": "echo 'there are no tests' && exit",
+    "test": "node --test",
     "start": "node src/index.js"
   }
 }
