@@ -2,7 +2,7 @@
 const { DMChannel, MessageType, EmbedBuilder, ChannelType, ButtonBuilder, ButtonStyle, ActionRowBuilder, PermissionFlagsBits } = require('discord.js');
 const cowsay = require('cowsay');
 const { 
-  GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, BASE_ROLE_ID, CHANNEL_ID, EXCLUDED_CHANNELS,
+  GM_CHANNEL_ID, SUPPORT_CHANNEL_ID, SCAM_CHANNEL_ID, CHANNEL_ID, EXCLUDED_CHANNELS,
   EXCLUDED_CHANNEL_PATTERNS,PROTECTED_ROLE_IDS
 } = require('./config');
 const { 
@@ -10,6 +10,7 @@ const {
   helloMsgReply, 
   pickFromList, 
   isLikelyQuestion,
+  hasBaseRolesOnly,
   canBeModerated,
   sendBotReply
 } = require('./utils');
@@ -61,6 +62,12 @@ const URL_SHORTENERS = [
   'tr.ee', 'kutt.it', 'dub.sh', 'soo.gd', 'qr.ae', 'tothe.link',
   'san.aq', 'KurzeLinks.de', 'lstu.fr', 'bitly.pk'
 ];
+
+function isAllowedDomainHost(domain) {
+  return ALLOWED_DOMAINS.some(allowedDomain =>
+    domain === allowedDomain || domain.endsWith('.' + allowedDomain)
+  );
+}
 
 const suspiciousUserThreads = new Map();
 const processingMessages = new Map();
@@ -525,14 +532,16 @@ if (wenMoon.test(message.content)) {
 }
 
 // Check for common patterns in support/ticket scams
-function isTargetedScamMessage(message, hasOnlyBaseRole, hasMentions, hasExternalUrl) {
+function isTargetedScamMessage(message, hasBaseRolesOnlyUser, hasMentions, hasExternalUrl) {
   const hasSupportOrTicketTerms = /\b(?:support|ticket|assistance|help desk|live support|faq|questions)\b/i.test(message.content);
   const hasDmRequest = /\b(?:dm|message|reach out|contact)\s+(?:me|us|support|team)\b/i.test(message.content);
   const hasDiscordInvite = /(?:discord\.gg|discord\.com\/invite)/i.test(message.content);
   
-  return (hasOnlyBaseRole && 
-         (hasMentions && (hasExternalUrl || hasDmRequest)) ||
-         (hasSupportOrTicketTerms && hasDiscordInvite));
+  return hasBaseRolesOnlyUser &&
+    (
+      (hasMentions && (hasExternalUrl || hasDmRequest)) ||
+      (hasSupportOrTicketTerms && hasDiscordInvite)
+    );
 }
 
 function isSuspectedScammer(userId) {
@@ -630,10 +639,10 @@ async function handleScamMessage(message) {
 
     // Check user roles
     const userRoles = message.member.roles.cache;
-    const hasOnlyBaseRole = userRoles.size === 2 && userRoles.has(BASE_ROLE_ID);
+    const hasBaseRolesOnlyUser = hasBaseRolesOnly(member);
     console.log(`\n--- User role check ---`);
     console.log(`User has ${userRoles.size} roles`);
-    console.log(`Has only base role: ${hasOnlyBaseRole ? 'YES' : 'NO'}`);
+    console.log(`Has only base roles: ${hasBaseRolesOnlyUser ? 'YES' : 'NO'}`);
     console.log(`Roles: ${Array.from(userRoles.values()).map(r => r.name).join(', ')}`);
     
     // Check if user joined recently (Phase 3 - behavioral detection)
@@ -647,34 +656,38 @@ async function handleScamMessage(message) {
     console.log(`\n--- Mention check ---`);
     console.log(`Mentions count: ${message.mentions.users.size}`);
     console.log(`Has @everyone: ${message.mentions.everyone ? 'YES' : 'NO'}`);
+
+    const targetedUsers = message.mentions.users
+      .filter(mentionedUser => !mentionedUser.bot)
+      .map(mentionedUser => `<@${mentionedUser.id}> (${mentionedUser.tag})`);
     
-    // Check if base role user is @mentioning non-protected users (common scam tactic)
-    // We allow base role users to mention admins/mods, but not other regular users
-    let baseRoleMentioningOthers = false;
-    if (hasOnlyBaseRole && message.mentions.users.size > 0) {
+    // Check if base-roles-only user is @mentioning non-protected users (common scam tactic)
+    // We allow base-roles-only users to mention admins/mods, but not other regular users
+    let baseRolesOnlyUserMentioningOthers = false;
+    if (hasBaseRolesOnlyUser && message.mentions.users.size > 0) {
       for (const [mentionedId, mentionedUser] of message.mentions.users) {
         try {
           const mentionedMember = await message.guild.members.fetch(mentionedId);
           if (!hasProtectedRole(mentionedMember)) {
             // Found a mentioned user without a protected role - this is suspicious
-            baseRoleMentioningOthers = true;
-            console.log(`Base role user mentioning non-protected user: ${mentionedUser.tag} - SUSPICIOUS`);
+            baseRolesOnlyUserMentioningOthers = true;
+            console.log(`Base-roles-only user mentioning non-protected user: ${mentionedUser.tag} - SUSPICIOUS`);
             break;
           } else {
-            console.log(`Base role user mentioning protected user: ${mentionedUser.tag} - OK`);
+            console.log(`Base-roles-only user mentioning protected user: ${mentionedUser.tag} - OK`);
           }
         } catch (e) {
           // If we can't fetch the member, be cautious and flag it
           console.error(`Failed to fetch mentioned member ${mentionedId}: ${e.message}`);
-          baseRoleMentioningOthers = true;
+          baseRolesOnlyUserMentioningOthers = true;
           break;
         }
       }
     }
-    console.log(`Base role user mentioning non-protected users: ${baseRoleMentioningOthers ? 'YES - SUSPICIOUS' : 'NO'}`);
+    console.log(`Base-roles-only user mentioning non-protected users: ${baseRolesOnlyUserMentioningOthers ? 'YES - SUSPICIOUS' : 'NO'}`);
     
     // Fetch mentions info
-    let mentionedUsersHaveOnlyBaseRole = false;
+    let mentionedUsersHaveBaseRolesOnly = false;
     if (message.mentions.users.size > 0) {
       console.log(`Checking roles of mentioned users...`);
       
@@ -682,10 +695,9 @@ async function handleScamMessage(message) {
         message.mentions.users.map(async (user) => {
           try {
             const mentionedMember = await message.guild.members.fetch(user);
-            const hasOnlyBase = mentionedMember.roles.cache.size === 2 && 
-                               mentionedMember.roles.cache.has(BASE_ROLE_ID);
-            console.log(`Mentioned user ${user.tag}: has only base role: ${hasOnlyBase ? 'YES' : 'NO'}`);
-            return hasOnlyBase;
+            const mentionedUserHasBaseRolesOnly = hasBaseRolesOnly(mentionedMember);
+            console.log(`Mentioned user ${user.tag}: has only base roles: ${mentionedUserHasBaseRolesOnly ? 'YES' : 'NO'}`);
+            return mentionedUserHasBaseRolesOnly;
           } catch (e) {
             console.error(`Failed to fetch member for ${user.id}:`, e.message);
             return false;
@@ -693,11 +705,11 @@ async function handleScamMessage(message) {
         })
       );
       
-      mentionedUsersHaveOnlyBaseRole = mentionRoleChecks.every(Boolean);
-      console.log(`All mentioned users have only base role: ${mentionedUsersHaveOnlyBaseRole ? 'YES' : 'NO'}`);
+      mentionedUsersHaveBaseRolesOnly = mentionRoleChecks.every(Boolean);
+      console.log(`All mentioned users have only base roles: ${mentionedUsersHaveBaseRolesOnly ? 'YES' : 'NO'}`);
     }
 
-    const hasMentions = (message.mentions.users.size > 0 && mentionedUsersHaveOnlyBaseRole) || message.mentions.everyone;
+    const hasMentions = (message.mentions.users.size > 0 && mentionedUsersHaveBaseRolesOnly) || message.mentions.everyone;
     const hasAnyMentions = (message.mentions.users.size > 0) || message.mentions.everyone;
     console.log(`Has qualifying mentions: ${hasMentions ? 'YES' : 'NO'}`);
     console.log(`Has any mentions: ${hasAnyMentions ? 'YES' : 'NO'}`);
@@ -719,9 +731,13 @@ async function handleScamMessage(message) {
     console.log(`Message seen in ${channels.size} channels`);
 
     // If the same message appears in more than 2 channels, quarantine it
-    if (channels.size > 2 && hasOnlyBaseRole) {
+    if (channels.size > 2 && hasBaseRolesOnlyUser) {
       console.log(`QUARANTINE TRIGGERED: Message in ${channels.size} channels`);
-      await quarantineMessage(message, channels);
+      await quarantineMessage(message, channels, {
+        targetedChannelIds: Array.from(channels),
+        targetedUsers,
+        hasEveryoneMention: message.mentions.everyone
+      });
       return true;
     }
     
@@ -737,7 +753,7 @@ async function handleScamMessage(message) {
     }, 3600000); // 1 hour in milliseconds
 
     // Check for targeted scam patterns
-    const isTargetedScam = isTargetedScamMessage(message, hasOnlyBaseRole, hasMentions, hasExternalUrl);
+    const isTargetedScam = isTargetedScamMessage(message, hasBaseRolesOnlyUser, hasMentions, hasExternalUrl);
     console.log(`\n--- Targeted scam check ---`);
     console.log(`Is targeted scam: ${isTargetedScam ? 'YES' : 'NO'}`);
 
@@ -749,9 +765,9 @@ async function handleScamMessage(message) {
       console.log(`Reference: ${message.reference ? 'Yes' : 'No'}`);
       console.log(`Webhook: ${message.webhookId ? 'Yes' : 'No'}`);
       
-      // If it's forwarded and user has only base role, treat as higher risk
-      if (hasOnlyBaseRole) {
-        console.log(`ELEVATED RISK: Forwarded message from base role user`);
+      // If it's forwarded and user has only base roles, treat as higher risk
+      if (hasBaseRolesOnlyUser) {
+        console.log(`ELEVATED RISK: Forwarded message from base-roles-only user`);
       }
     }
 
@@ -759,19 +775,19 @@ async function handleScamMessage(message) {
     console.log(`\n--- FINAL DECISION ---`);
     
     // Modified condition to always catch dsc.gg and discord invites
-    // NEW: Also catch base role users who are @mentioning other users
+    // NEW: Also catch base-roles-only users who are @mentioning other users
     // NEW: Behavioral detection for users who joined recently
-    const recentJoinerSuspicious = joinedRecently && hasOnlyBaseRole && (hasAnyMentions || hasExternalUrl);
+    const recentJoinerSuspicious = joinedRecently && hasBaseRolesOnlyUser && (hasAnyMentions || hasExternalUrl);
     
     const shouldQuarantine = (
-      ((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl || urlObfuscation.isObfuscated) && hasOnlyBaseRole) ||
+      ((isScamContent || (hasExternalUrl && hasMentions) || hasDeceptiveUrlContent || hasShortenerUrl || urlObfuscation.isObfuscated) && hasBaseRolesOnlyUser) ||
       isTargetedScam || 
       isScamUser ||
-      baseRoleMentioningOthers ||  // Base role users mentioning anyone is suspicious
+      baseRolesOnlyUserMentioningOthers ||  // Base-roles-only users mentioning anyone is suspicious
       recentJoinerSuspicious ||    // NEW: Users who joined <10 min ago with suspicious behavior
       (hasDscGg && !hasProtectedRole(member)) ||  // Always catch dsc.gg links unless protected
       (hasDiscordInvite && !hasProtectedRole(member) && !content.includes('garden.finance') || // Always catch discord invites unless protected or official
-      isForwarded && hasOnlyBaseRole) //disallow forwarded messages by regular users
+      isForwarded && hasBaseRolesOnlyUser) //disallow forwarded messages by regular users
     );
     
     console.log(`Recent joiner suspicious: ${recentJoinerSuspicious ? 'YES' : 'NO'}`);
@@ -793,8 +809,11 @@ async function handleScamMessage(message) {
         isTargetedScam: isTargetedScam,
         isScamUser: isScamUser,
         hasDscGg: hasDscGg,
-        baseRoleMentioningOthers: baseRoleMentioningOthers,
-        recentJoinerSuspicious: recentJoinerSuspicious  // NEW
+        baseRolesOnlyUserMentioningOthers: baseRolesOnlyUserMentioningOthers,
+        recentJoinerSuspicious: recentJoinerSuspicious,  // NEW
+        targetedChannelIds: [channel.id],
+        targetedUsers,
+        hasEveryoneMention: message.mentions.everyone
       };
       
       await quarantineMessage(message, new Set([channel.id]), detectionReason);
@@ -918,7 +937,7 @@ async function quarantineMessage(message, channelIds, detectionReason = {}) {
       if (detectionReason.hasReference) detectionDetails.push("  └ Has message reference");
       if (detectionReason.hasWebhook) detectionDetails.push("  └ Via webhook");
     }
-    if (detectionReason.baseRoleMentioningOthers) detectionDetails.push("👤 **Base Role User @Mentioning Others**");
+    if (detectionReason.baseRolesOnlyUserMentioningOthers) detectionDetails.push("👤 **Base-Roles-Only User @Mentioning Others**");
     if (detectionReason.recentJoinerSuspicious) detectionDetails.push("🆕 **New User (<10 min) with Suspicious Behavior**");
     if (detectionReason.hasUrlObfuscation) detectionDetails.push("🔗 **URL Obfuscation**");
     if (detectionReason.hasExternalUrl) detectionDetails.push("🌐 **External URL**");
@@ -926,6 +945,20 @@ async function quarantineMessage(message, channelIds, detectionReason = {}) {
     if (detectionReason.hasDiscordInvite) detectionDetails.push("💬 **Discord Invite**");
     if (detectionReason.isScamContent) detectionDetails.push("⚠️ **Scam Pattern Match**");
     if (detectionReason.isTargetedScam) detectionDetails.push("🎯 **Targeted Scam**");
+    if (Array.isArray(detectionReason.targetedChannelIds) && detectionReason.targetedChannelIds.length > 0) {
+      const maxChannels = 6;
+      const channelRefs = detectionReason.targetedChannelIds.slice(0, maxChannels).map(id => `<#${id}>`).join(', ');
+      const extraCount = detectionReason.targetedChannelIds.length - maxChannels;
+      detectionDetails.push(`📍 **Target Channel(s)**: ${channelRefs}${extraCount > 0 ? ` (+${extraCount} more)` : ''}`);
+    }
+    if (Array.isArray(detectionReason.targetedUsers) && detectionReason.targetedUsers.length > 0) {
+      const maxUsers = 6;
+      const userRefs = detectionReason.targetedUsers.slice(0, maxUsers).join(', ');
+      const extraCount = detectionReason.targetedUsers.length - maxUsers;
+      detectionDetails.push(`🎯 **Targeted User(s)**: ${userRefs}${extraCount > 0 ? ` (+${extraCount} more)` : ''}`);
+    } else if (detectionReason.hasEveryoneMention) {
+      detectionDetails.push("🎯 **Targeted User(s)**: @everyone/@here");
+    }
     
     const detectionSummary = detectionDetails.length > 0 ? detectionDetails.join('\n') : "Standard detection";
 
@@ -1335,22 +1368,19 @@ function isChannelExcluded(channel) {
 function hasDeceptiveUrl(content) {
   const urlMatches = content.match(urlPattern) || [];
   
-  // Check each URL for allowed domains before running deceptive checks
-  for (const url of urlMatches) {
-    const domainMatch = url.match(/https?:\/\/([^\/\s]+)/i);
-    if (domainMatch) {
-      const domain = domainMatch[1].toLowerCase();
-      // Check if domain is allowed
-      const isAllowed = ALLOWED_DOMAINS.some(allowedDomain => 
-        domain === allowedDomain || domain.endsWith('.' + allowedDomain)
-      );
-      
-      // If it's from an allowed domain, skip deceptive URL checks
-      if (isAllowed) {
-        return false;
-      }
+  // Skip deceptive checks only if all detected URLs are from allowed domains.
+  if (urlMatches.length > 0) {
+    const hasNonAllowedUrl = urlMatches.some(url => {
+      const domainMatch = url.match(/https?:\/\/([^\/\s]+)/i);
+      if (!domainMatch) return true;
+      return !isAllowedDomainHost(domainMatch[1].toLowerCase());
+    });
+
+    if (!hasNonAllowedUrl) {
+      return false;
     }
   }
+
   // Check for URLs disguised with zero-width spaces or other invisible characters
   const hasHiddenChars = /https?:\/\/\S*[\u200B-\u200D\uFEFF\u2060\u180E]\S*/i.test(content);
   
@@ -1383,28 +1413,24 @@ function detectUrlObfuscation(content) {
   // Extract all URLs from the original content (for allowed domain checking)
   const urlMatches = content.match(urlPattern) || [];
   
-  // Check each URL for allowed domains before running obfuscation checks
-  for (const url of urlMatches) {
-    const domainMatch = url.match(/https?:\/\/([^\/\s]+)/i);
-    if (domainMatch) {
-      const domain = domainMatch[1].toLowerCase();
-      // Check if domain is allowed
-      const isAllowed = ALLOWED_DOMAINS.some(allowedDomain => 
-        domain === allowedDomain || domain.endsWith('.' + allowedDomain)
-      );
-      
-      // If all URLs are from allowed domains, skip obfuscation checks
-      if (isAllowed) {
-        return {
-          hasUrlEncoding: false,
-          hasLineBreaksInUrl: false,
-          hasInvisibleChars: false,
-          hasUnusualChars: false,
-          hasBrokenScheme: false,
-          hasAlternativeSlashes: false,
-          isObfuscated: false
-        };
-      }
+  // Skip obfuscation checks only if all detected URLs are from allowed domains.
+  if (urlMatches.length > 0) {
+    const hasNonAllowedUrl = urlMatches.some(url => {
+      const domainMatch = url.match(/https?:\/\/([^\/\s]+)/i);
+      if (!domainMatch) return true;
+      return !isAllowedDomainHost(domainMatch[1].toLowerCase());
+    });
+
+    if (!hasNonAllowedUrl) {
+      return {
+        hasUrlEncoding: false,
+        hasLineBreaksInUrl: false,
+        hasInvisibleChars: false,
+        hasUnusualChars: false,
+        hasBrokenScheme: false,
+        hasAlternativeSlashes: false,
+        isObfuscated: false
+      };
     }
   }
   
@@ -1586,6 +1612,9 @@ function containsUrlShortener(content) {
 
 // Function to check if a URL is to an internal Discord channel or an allowed domain
 function isAllowedUrl(content, guild) {
+  urlPattern.lastIndex = 0;
+  plainDomainPattern.lastIndex = 0;
+
   // Check for URLs with http/https protocol
   let match;
   while ((match = urlPattern.exec(content)) !== null) {
@@ -1746,6 +1775,19 @@ async function handleUnauthorizedUrl(message) {
         if (hasShortenerUrl) detectionDetails.push("📎 **URL Shortener**");
         if (hasDiscordInvite) detectionDetails.push("💬 **Discord Invite**");
         if (urlObfuscation.isObfuscated) detectionDetails.push("🕵️ **URL Obfuscation**");
+        detectionDetails.push(`📍 **Target Channel**: <#${message.channel.id}>`);
+
+        const targetedUsers = message.mentions.users
+          .filter(mentionedUser => !mentionedUser.bot)
+          .map(mentionedUser => `<@${mentionedUser.id}> (${mentionedUser.tag})`);
+        if (targetedUsers.length > 0) {
+          const maxUsers = 6;
+          const userRefs = targetedUsers.slice(0, maxUsers).join(', ');
+          const extraCount = targetedUsers.length - maxUsers;
+          detectionDetails.push(`🎯 **Targeted User(s)**: ${userRefs}${extraCount > 0 ? ` (+${extraCount} more)` : ''}`);
+        } else if (message.mentions.everyone) {
+          detectionDetails.push("🎯 **Targeted User(s)**: @everyone/@here");
+        }
         
         const detectionSummary = detectionDetails.join('\n');
         

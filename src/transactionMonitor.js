@@ -19,6 +19,7 @@ const { createTransferEmbed, createStakeEmbed, createSwapEmbed } = require('./em
 const web3Instances = {};
 const highestCheckedBlocks = {};
 const processedTransactions = new Set();
+let isCheckingTransfers = false;
 
 // Initialize Web3 instances for each active chain
 function initializeWeb3Instances() {
@@ -36,32 +37,43 @@ function initializeWeb3Instances() {
 
 // Main check function that processes all active chains
 async function checkTransfers(client) {
+  if (isCheckingTransfers) {
+    console.log('⏳ Transaction check already in progress, skipping this interval tick.');
+    return;
+  }
+
+  isCheckingTransfers = true;
+
   // Initialize Web3 instances if not done yet
-  if (Object.keys(web3Instances).length === 0) {
-    initializeWeb3Instances();
-  }
-
-  console.log(`\n🔍 Starting transaction check across ${ACTIVE_CHAINS.length} chain(s)...`);
-  const overallStartTime = new Date();
-
-  // Process each active chain
-  for (const chainKey of ACTIVE_CHAINS) {
-    const chainConfig = CHAINS[chainKey];
-    if (!chainConfig) {
-      console.warn(`Skipping unknown chain: ${chainKey}`);
-      continue;
+  try {
+    if (Object.keys(web3Instances).length === 0) {
+      initializeWeb3Instances();
     }
 
-    try {
-      await checkTransfersForChain(client, chainKey, chainConfig);
-    } catch (error) {
-      console.error(`Error checking transfers for ${chainConfig.name}:`, error.message);
-    }
-  }
+    console.log(`\n🔍 Starting transaction check across ${ACTIVE_CHAINS.length} chain(s)...`);
+    const overallStartTime = new Date();
 
-  const overallEndTime = new Date();
-  const overallDuration = ((overallEndTime - overallStartTime) / 1000).toFixed(2);
-  console.log(`✅ Completed checking all chains in ${overallDuration} seconds\n`);
+    // Process each active chain
+    for (const chainKey of ACTIVE_CHAINS) {
+      const chainConfig = CHAINS[chainKey];
+      if (!chainConfig) {
+        console.warn(`Skipping unknown chain: ${chainKey}`);
+        continue;
+      }
+
+      try {
+        await checkTransfersForChain(client, chainKey, chainConfig);
+      } catch (error) {
+        console.error(`Error checking transfers for ${chainConfig.name}:`, error.message);
+      }
+    }
+
+    const overallEndTime = new Date();
+    const overallDuration = ((overallEndTime - overallStartTime) / 1000).toFixed(2);
+    console.log(`✅ Completed checking all chains in ${overallDuration} seconds\n`);
+  } finally {
+    isCheckingTransfers = false;
+  }
 }
 
 // Check transfers for a specific chain
@@ -162,11 +174,11 @@ async function checkTransfersForChain(client, chainKey, chainConfig) {
         stats.transfersFound += transfers.length;
         
         // Only fetch price if we need it
-        const hasLargeTransfer = transfers.some(transfer => 
-          Number(web3.utils.fromWei(transfer.value, 'ether')) >= LARGE_STAKE_AMOUNT
+        const needsPriceLookup = transfers.some(transfer => 
+          Number(web3.utils.fromWei(transfer.value, 'ether')) >= Math.min(LARGE_SWAP_AMOUNT, LARGE_STAKE_AMOUNT)
         );
         
-        if (hasLargeTransfer && tokenPrice === null) {
+        if (needsPriceLookup && tokenPrice === null) {
           try {
             tokenPrice = await getSeedTokenPrice(chainConfig.coingeckoId);
             stats.apiCallsMade++;
@@ -204,7 +216,7 @@ async function checkTransfersForChain(client, chainKey, chainConfig) {
             rangeStats.largeStakeCount++;
             
             const embed = createStakeEmbed(amount, usdValue, txHash, displayText, chainConfig.name, chainConfig.chainId);
-            sendAlert(client, embed, CHANNEL_ID);
+            await sendAlert(client, embed, CHANNEL_ID);
             continue;
           }
           
@@ -225,13 +237,13 @@ async function checkTransfersForChain(client, chainKey, chainConfig) {
                 stats.largeSwapsFound++;
                 rangeStats.largeSwapCount++;
                 const embed = createSwapEmbed(amount, usdValue, txHash, displayText, chainConfig.name, chainConfig.chainId);
-                sendAlert(client, embed, CHANNEL_ID);
+                await sendAlert(client, embed, CHANNEL_ID);
               } else {
                 console.log(`[${chainConfig.name}] Large transfer: ${amount} SEED ($${usdValue.toFixed(2)}) in block ${transfer.blockNumber}`);
                 stats.largeTransfersFound++;
                 rangeStats.largeTransferCount++;
                 const embed = createTransferEmbed(amount, usdValue, txHash, displayText, chainConfig.name, chainConfig.chainId);
-                sendAlert(client, embed, CHANNEL_ID);
+                await sendAlert(client, embed, CHANNEL_ID);
               }
             } catch (receiptError) {
               console.error(`[${chainConfig.name}] Failed to get receipt for ${displayText}:`, receiptError.message);

@@ -228,14 +228,6 @@ jobs:
         echo "Target: $PROD_HOST"
         echo ""
         
-        echo "--- DNS Lookup ---"
-        if nslookup "$PROD_HOST" 2>&1; then
-          echo "✅ DNS resolution successful"
-        else
-          echo "⚠️  DNS lookup failed (might be an IP address, which is fine)"
-        fi
-        echo ""
-        
         echo "--- Ping Test (3 packets) ---"
         if ping -c 3 -W 5 "$PROD_HOST" 2>&1; then
           echo "✅ Host responds to ping"

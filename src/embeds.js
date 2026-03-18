@@ -12,6 +12,13 @@ const COLORS = {
   SWAP: '#2ECC71'
 };
 
+const EMBED_LIMITS = {
+  FIELD_NAME: 256,
+  FIELD_VALUE: 1024
+};
+
+const TRUNCATE_SUFFIX = '... (truncated)';
+
 // Helper function to get block explorer URL based on chain ID
 function getExplorerUrl(chainId, txHash) {
   const explorers = {
@@ -62,7 +69,25 @@ function formatNumber(value) {
 function truncateText(text, maxLength = 900) {
   if (!text) return 'No content';
   if (text.length <= maxLength) return text;
-  return text.substring(0, maxLength) + '... (truncated)';
+  const safeMaxLength = Math.max(0, maxLength - TRUNCATE_SUFFIX.length);
+  return text.substring(0, safeMaxLength) + TRUNCATE_SUFFIX;
+}
+
+function clampEmbedText(value, maxLength, fallback = 'N/A') {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  const text = String(value);
+  return text.length > maxLength ? truncateText(text, maxLength) : text;
+}
+
+function createSafeField(name, value, inline = false) {
+  return {
+    name: clampEmbedText(name, EMBED_LIMITS.FIELD_NAME, 'Info'),
+    value: clampEmbedText(value, EMBED_LIMITS.FIELD_VALUE, 'N/A'),
+    inline
+  };
 }
 
 // Static embeds
@@ -156,58 +181,50 @@ function createWarningMessageEmbed(accountCreatedAt, joinDate, displayName, user
   
   // Add fields with proper validation
   if (accountCreatedAt) {
-    fields.push({ name: 'Account Created', value: String(accountCreatedAt), inline: true });
+    fields.push(createSafeField('Account Created', accountCreatedAt, true));
   }
   
   if (joinDate) {
-    fields.push({ name: 'Joined Server', value: String(joinDate), inline: true });
+    fields.push(createSafeField('Joined Server', joinDate, true));
   }
   
   if (displayName) {
-    fields.push({ name: 'Display Name', value: String(displayName), inline: true });
+    fields.push(createSafeField('Display Name', displayName, true));
   }
   
   // Username with link to profile
   if (username && userId) {
-    fields.push({ 
-      name: 'Username', 
-      value: `[${username}](https://discord.com/users/${userId})`, 
-      inline: true 
-    });
+    const usernameLink = `[@${username}](https://discord.com/users/${userId})`;
+    fields.push(createSafeField('Username', usernameLink, true));
   }
   
   // Roles field
-  fields.push({ name: 'Roles', value: roles || 'None', inline: true });
+  fields.push(createSafeField('Roles', roles || 'None', true));
   
   // Channel count - safely handle the Set
   const channelCount = channelIds && typeof channelIds.size === 'number' ? 
     channelIds.size.toString() : '1';
-  fields.push({ name: 'Channels Affected', value: channelCount, inline: true });
+  fields.push(createSafeField('Channels Affected', channelCount, true));
   
   // Spam occurrences - ensure it's a number and convert to string
-  fields.push({ 
-    name: 'Spam Occurrences', 
-    value: (Number.isFinite(spamOccurrences) ? spamOccurrences : 0).toString(), 
-    inline: true 
-  });
+  fields.push(
+    createSafeField(
+      'Spam Occurrences',
+      (Number.isFinite(spamOccurrences) ? spamOccurrences : 0).toString(),
+      true
+    )
+  );
   
   // Add detection details if provided
   if (detectionSummary) {
-    fields.push({ 
-      name: '🔍 Detection Details', 
-      value: String(detectionSummary),
-      inline: false 
-    });
+    fields.push(createSafeField('🔍 Detection Details', detectionSummary, false));
   }
   
   // Safely handle the original message
   if (originalMessage) {
     // Truncate long messages and add spoiler tags
-    const safeMessage = truncateText(originalMessage);
-    fields.push({ 
-      name: 'Removed Message (click to expand)', 
-      value: `||${safeMessage}||` 
-    });
+    const safeMessage = truncateText(originalMessage, 980);
+    fields.push(createSafeField('Removed Message (click to expand)', `||${safeMessage}||`));
   }
   
   // Add all validated fields

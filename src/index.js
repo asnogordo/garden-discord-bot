@@ -13,6 +13,9 @@ const { addToWhitelist, isWhitelisted } = require('./whitelist');
 
 fs.writeFileSync('bot.pid', process.pid.toString());
 
+const botToken = config.BOT_TOKEN || process.env.BOT_TOKEN;
+const commandClientId = config.DISCORD_CLIENT_ID || process.env.CLIENT_ID;
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -26,7 +29,14 @@ const client = new Client({
 client.commands = new Collection();
 client.suspectedScammers = new Map(); // Add this line to store suspectedScammers
 const commandsPath = path.join(__dirname, 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+const commandsDirExists = fs.existsSync(commandsPath);
+const commandFiles = commandsDirExists
+  ? fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'))
+  : [];
+
+if (!commandsDirExists) {
+  console.warn(`Commands directory not found at ${commandsPath}. Continuing without slash commands.`);
+}
 
 for (const file of commandFiles) {
   const filePath = path.join(commandsPath, file);
@@ -38,14 +48,31 @@ for (const file of commandFiles) {
   }
 }
 
-const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
+const rest = new REST({ version: '10' }).setToken(botToken || '');
+
+async function safeInteractionReply(interaction, payload) {
+  if (interaction.deferred || interaction.replied) {
+    return interaction.followUp(payload);
+  }
+  return interaction.reply(payload);
+}
 
 (async () => {
   try {
+    if (!botToken) {
+      console.error('BOT_TOKEN is not set. Skipping slash command registration.');
+      return;
+    }
+
+    if (!commandClientId) {
+      console.error('DISCORD_CLIENT_ID (or CLIENT_ID) is not set. Skipping slash command registration.');
+      return;
+    }
+
     console.log('Started refreshing application (/) commands.');
 
     await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
+      Routes.applicationCommands(commandClientId),
       { body: client.commands.map(command => command.data.toJSON()) },
     );
 
@@ -94,7 +121,7 @@ client.once('ready', async () => {
 client.on('messageCreate', handleMessage);
 
 client.on('interactionCreate', async interaction => {
-  if (!interaction.isCommand()) return;
+  if (!interaction.isChatInputCommand()) return;
 
   const command = client.commands.get(interaction.commandName);
 
@@ -104,7 +131,10 @@ client.on('interactionCreate', async interaction => {
       await command.execute(interaction);
   } catch (error) {
       console.error(error);
-      await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
+      await safeInteractionReply(interaction, {
+        content: 'There was an error while executing this command!',
+        flags: MessageFlags.Ephemeral
+      });
   }
 });
 
@@ -130,7 +160,7 @@ client.on('interactionCreate', async interaction => {
       // No reply needed since message is deleted
     } catch (error) {
       console.error('Error dismissing message:', error);
-      await interaction.reply({ 
+      await safeInteractionReply(interaction, { 
         content: 'Failed to dismiss message', 
         flags: MessageFlags.Ephemeral 
       });
@@ -186,7 +216,7 @@ client.on('interactionCreate', async interaction => {
       await interaction.channel.setArchived(true, `Review completed by ${interaction.user.tag}`);
     } catch (error) {
       console.error('Error archiving thread:', error);
-      await interaction.reply({ 
+      await safeInteractionReply(interaction, { 
         content: `Failed to archive thread: ${error.message}`, 
         flags: MessageFlags.Ephemeral 
       });
@@ -277,12 +307,12 @@ client.on('interactionCreate', async interaction => {
         console.error('Failed to ban user:', error);
         
         if (error.code === 10007) {
-          await interaction.reply({ 
+          await safeInteractionReply(interaction, { 
             content: 'Cannot ban this user: they may have already left the server or been banned.', 
             flags: MessageFlags.Ephemeral
           });
         } else {
-          await interaction.reply({ 
+          await safeInteractionReply(interaction, { 
             content: `Failed to ban user: ${error.message}. Please check logs for more details.`, 
             flags: MessageFlags.Ephemeral
           });
@@ -407,7 +437,7 @@ client.on('interactionCreate', async interaction => {
       }
     } catch (error) {
       console.error('Failed to whitelist user:', error);
-      await interaction.reply({ 
+      await safeInteractionReply(interaction, { 
         content: `An error occurred while whitelisting the user: ${error.message}`, 
         flags: MessageFlags.Ephemeral
       });
@@ -452,6 +482,6 @@ function gracefulShutdown() {
   process.exit(0);
 }
 
-client.login(process.env.BOT_TOKEN).catch(err => {
+client.login(botToken).catch(err => {
   console.error('Failed to login:', err);
 });

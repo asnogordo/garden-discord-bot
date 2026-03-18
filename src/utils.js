@@ -4,6 +4,7 @@ const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 
 // Cache the protected roles
 let protectedRoleIds = null;
+let baseRoleIds = null;
 
 function formatNumber(num) {
   return new Intl.NumberFormat().format(num);
@@ -68,19 +69,65 @@ function formatDuration(ms) {
 function isAboveBaseRole(member) {
   console.log(`Checking permissions for user: ${member.user.tag}`);
   
-  const baseRole = member.guild.roles.cache.get(require('./config').BASE_ROLE_ID);
-  if (!baseRole) {
-    console.log(`Base role with ID ${require('./config').BASE_ROLE_ID} not found in the guild.`);
+  const baseRoles = (config.BASE_ROLE_IDS || [])
+    .map(roleId => member.guild.roles.cache.get(roleId))
+    .filter(Boolean);
+
+  if (baseRoles.length === 0) {
+    console.log('None of the configured BASE_ROLE_IDS were found in the guild.');
     return false;
   }
+
+  const highestBaseRole = baseRoles.reduce((highest, current) =>
+    current.position > highest.position ? current : highest
+  );
   
-  console.log(`Base role: ${baseRole.name} (Position: ${baseRole.position})`);
+  console.log(`Highest base role: ${highestBaseRole.name} (Position: ${highestBaseRole.position})`);
   console.log(`User's highest role: ${member.roles.highest.name} (Position: ${member.roles.highest.position})`);
   
-  const isAbove = member.roles.highest.position > baseRole.position;
+  const isAbove = member.roles.highest.position > highestBaseRole.position;
   console.log(`Is user's role above base role? ${isAbove}`);
   
   return isAbove;
+}
+
+function getBaseRoleIds() {
+  if (!baseRoleIds) {
+    baseRoleIds = new Set(config.BASE_ROLE_IDS || []);
+  }
+  return baseRoleIds;
+}
+
+function hasBaseRolesOnly(member) {
+  if (!member || !member.roles || !member.roles.cache) {
+    return false;
+  }
+
+  const allowedBaseRoles = getBaseRoleIds();
+  if (allowedBaseRoles.size === 0) {
+    console.warn('BASE_ROLE_IDS is empty - hasBaseRolesOnly will return false');
+    return false;
+  }
+
+  const nonEveryoneRoleIds = [];
+  for (const role of member.roles.cache.values()) {
+    // Skip @everyone role
+    if (role.id === member.guild?.id || role.name === '@everyone') {
+      continue;
+    }
+    nonEveryoneRoleIds.push(role.id);
+  }
+
+  if (nonEveryoneRoleIds.length === 0) {
+    return false;
+  }
+
+  const hasAtLeastOneBaseRole = nonEveryoneRoleIds.some(roleId => allowedBaseRoles.has(roleId));
+  if (!hasAtLeastOneBaseRole) {
+    return false;
+  }
+
+  return nonEveryoneRoleIds.every(roleId => allowedBaseRoles.has(roleId));
 }
 
 function getProtectedRoleIds() {
@@ -203,6 +250,7 @@ module.exports = {
   retryOperation,
   formatDuration,
   isAboveBaseRole,
+  hasBaseRolesOnly,
   hasProtectedRole,
   canBeModerated,
   isLikelyQuestion,
